@@ -71,6 +71,9 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        jniLibs {
+            pickFirsts += "**/libc++_shared.so"
+        }
     }
 }
 
@@ -107,6 +110,8 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
+    implementation(libs.mediapipe.vision)
+    implementation(libs.mlkit.face.mesh.detection)
     // CameraX's ProcessCameraProvider exposes a ListenableFuture; without a real Guava on the
     // classpath only the empty placeholder artifact resolves, which breaks compilation.
     implementation(libs.guava)
@@ -119,6 +124,7 @@ dependencies {
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.kotlinx.serialization.json)
 
     // Retrofit (secure Android <-> Backend API <-> PostgreSQL communication)

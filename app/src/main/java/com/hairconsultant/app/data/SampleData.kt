@@ -21,7 +21,7 @@ object SampleData {
     )
 
     val allHaircuts: List<Haircut> by lazy {
-        HairLength.entries.flatMap { length ->
+        HairLength.entries.filter { it != HairLength.BALD }.flatMap { length ->
             HairTexture.entries.flatMap { texture ->
                 namesByTexture.getValue(texture).mapIndexed { index, name ->
                     val id = "${length.name}_${texture.name}_$index"

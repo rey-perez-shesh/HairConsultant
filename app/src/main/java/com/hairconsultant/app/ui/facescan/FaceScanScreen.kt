@@ -53,7 +53,10 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (cameraPermissionState.status.isGranted) {
-            CameraPreview(modifier = Modifier.fillMaxSize())
+            CameraPreview(
+                landmarkStore = viewModel.landmarkStore,
+                modifier = Modifier.fillMaxSize()
+            )
             uiState.triedOnHaircut?.let { haircut -> ArTryOnOverlay(haircut) }
         } else {
             Column(

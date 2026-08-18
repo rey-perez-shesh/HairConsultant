@@ -28,7 +28,7 @@ class HaircutRepositoryImpl(
 
     override fun observeClusters(): Flow<List<HaircutCluster>> = haircutDao.observeAll().map { entities ->
         val haircuts = entities.map { it.toDomain() }
-        HairLength.entries.flatMap { length ->
+        HairLength.entries.filter { it != HairLength.BALD }.flatMap { length ->
             HairTexture.entries.map { texture ->
                 HaircutCluster(
                     length = length,

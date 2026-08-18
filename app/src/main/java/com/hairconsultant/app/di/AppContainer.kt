@@ -3,7 +3,11 @@ package com.hairconsultant.app.di
 import android.content.Context
 import androidx.room.Room
 import com.hairconsultant.app.data.analysis.FaceAnalyzer
-import com.hairconsultant.app.data.analysis.MockFaceAnalyzer
+import com.hairconsultant.app.data.analysis.FaceLandmarkStore
+import com.hairconsultant.app.data.analysis.LandmarkFaceAnalyzer
+import com.hairconsultant.app.data.analysis.MlKitFaceMeshVerifier
+import com.hairconsultant.app.data.analysis.StillImageFaceLandmarker
+import com.hairconsultant.app.data.analysis.StillImageHairSegmenter
 import com.hairconsultant.app.data.local.AppDatabase
 import com.hairconsultant.app.data.remote.api.NetworkModule
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
@@ -53,8 +57,21 @@ class AppContainer(private val appContext: Context) {
     // --- Gemini (image-upload AR try-on generation) ---
     val geminiImageRepository: GeminiImageRepository by lazy { GeminiImageRepositoryImpl(appContext) }
 
-    // --- Face shape / hair length / hair texture detection (mocked until a real model is trained) ---
-    val faceAnalyzer: FaceAnalyzer by lazy { MockFaceAnalyzer() }
+    // --- Face + hair: MediaPipe live landmarker/hair mask + ML Kit second check ---
+    // Swap LandmarkFaceAnalyzer(...) for MockFaceAnalyzer() to restore random results.
+    val faceLandmarkStore = FaceLandmarkStore()
+    private val stillFaceLandmarker by lazy { StillImageFaceLandmarker(appContext) }
+    private val mlKitFaceMeshVerifier by lazy { MlKitFaceMeshVerifier(appContext) }
+    private val stillHairSegmenter by lazy { StillImageHairSegmenter(appContext) }
+    val faceAnalyzer: FaceAnalyzer by lazy {
+        LandmarkFaceAnalyzer(
+            appContext,
+            faceLandmarkStore,
+            stillFaceLandmarker,
+            mlKitFaceMeshVerifier,
+            stillHairSegmenter
+        )
+    }
 
     // --- Repositories consumed by the UI layer (offline-first via Room) ---
     val userRepository: UserRepository by lazy { UserRepositoryImpl(database.userDao(), userProfileRemoteRepository) }

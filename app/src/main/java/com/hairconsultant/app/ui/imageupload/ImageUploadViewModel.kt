@@ -4,10 +4,13 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hairconsultant.app.data.analysis.FaceAnalyzer
+import com.hairconsultant.app.data.analysis.NoFaceDetectedException
 import com.hairconsultant.app.data.remote.gemini.GeminiImageRepository
 import com.hairconsultant.app.data.repository.HaircutRepository
 import com.hairconsultant.app.domain.model.FaceShape
 import com.hairconsultant.app.domain.model.HairLength
+import com.hairconsultant.app.domain.model.HairColor
+import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.ScanResult
 import com.hairconsultant.app.domain.model.TreatmentPreference
@@ -21,13 +24,18 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class ImageUploadStage { IDLE, ANALYZING, CONFIRM_RESULT, ASK_LENGTH, ASK_TREATMENT, SUGGESTIONS }
+enum class ImageUploadStage { IDLE, ANALYZING, CONFIRM_RESULT, ASK_FIX, ASK_LENGTH, ASK_TEXTURE, ASK_TREATMENT, SUGGESTIONS }
+
+enum class UploadFixTarget { FACE_SHAPE, HAIR_LENGTH, HAIR_TEXTURE }
 
 data class ImageUploadUiState(
     val stage: ImageUploadStage = ImageUploadStage.IDLE,
     val sourceImageUri: Uri? = null,
     val scanResult: ScanResult? = null,
     val desiredLength: HairLength? = null,
+    val desiredTexture: HairTexture? = null,
+    val fixTarget: UploadFixTarget? = null,
+    val afterRescan: Boolean = false,
     val suggestions: List<Haircut> = emptyList(),
     val selectedHaircut: Haircut? = null,
     val isGenerating: Boolean = false,
@@ -53,17 +61,29 @@ class ImageUploadViewModel(
         _uiState.update {
             ImageUploadUiState(sourceImageUri = uri, stage = ImageUploadStage.ANALYZING)
         }
+        analyzePhoto(uri)
+    }
+
+    private fun analyzePhoto(uri: Uri) {
         chatBot.setOpen(true)
         chatBot.pushBotMessage("Got your photo! Analyzing your face shape and hair now...")
         viewModelScope.launch {
-            val result = faceAnalyzer.analyzeImage(uri)
-            _uiState.update { it.copy(stage = ImageUploadStage.CONFIRM_RESULT, scanResult = result) }
-            chatBot.pushBotMessage(
-                "I see a ${result.faceShape.displayName} face shape with " +
-                    "${result.hairLength.displayName.lowercase()}, ${result.hairTexture.displayName.lowercase()} hair. " +
-                    "Is that correct?",
-                quickReplies = listOf("Yes, that's right", "No, let me fix it")
-            )
+            try {
+                val result = faceAnalyzer.analyzeImage(uri)
+                _uiState.update { it.copy(stage = ImageUploadStage.CONFIRM_RESULT, scanResult = result) }
+                chatBot.pushBotMessage(
+                    "I see a ${result.faceShape.displayName} face shape" +
+                        hairScanPhrase(result) +
+                        ". Did I get it right?",
+                    quickReplies = listOf("Yes, that's right", "No, let me fix it")
+                )
+            } catch (error: NoFaceDetectedException) {
+                _uiState.update { it.copy(stage = ImageUploadStage.IDLE) }
+                chatBot.pushBotMessage(error.message ?: "I couldn't find a face in that photo. Try another one.")
+            } catch (error: Exception) {
+                _uiState.update { it.copy(stage = ImageUploadStage.IDLE) }
+                chatBot.pushBotMessage("Could not analyze that photo (${error.message}). Please try another.")
+            }
         }
     }
 
@@ -74,7 +94,9 @@ class ImageUploadViewModel(
     private fun handleFreeText(text: String) {
         when (_uiState.value.stage) {
             ImageUploadStage.CONFIRM_RESULT -> onResultConfirmationReply(text)
+            ImageUploadStage.ASK_FIX -> onFixReply(text)
             ImageUploadStage.ASK_LENGTH -> onLengthReply(text)
+            ImageUploadStage.ASK_TEXTURE -> onTextureReply(text)
             ImageUploadStage.ASK_TREATMENT -> onTreatmentReply(text)
             else -> chatBot.pushBotMessage("Upload a photo to get started.")
         }
@@ -82,32 +104,231 @@ class ImageUploadViewModel(
 
     private fun onResultConfirmationReply(text: String) {
         if (text.startsWith("No", ignoreCase = true)) {
-            chatBot.pushBotMessage("What's your actual face shape?", quickReplies = FaceShape.entries.map { it.displayName })
+            _uiState.update { it.copy(stage = ImageUploadStage.ASK_FIX, fixTarget = null) }
+            chatBot.pushBotMessage(
+                "No problem — what would you like to fix?",
+                quickReplies = fixMenuQuickReplies(includeTexture = _uiState.value.scanResult?.hairLength != HairLength.BALD)
+            )
             return
         }
-        FaceShape.entries.firstOrNull { it.displayName == text }?.let { shape ->
+        FaceShape.entries.firstOrNull { it.displayName.equals(text, ignoreCase = true) }?.let { shape ->
             _uiState.update { it.copy(scanResult = it.scanResult?.copy(faceShape = shape)) }
+        }
+        if (_uiState.value.afterRescan || _uiState.value.scanResult?.hairLength == HairLength.BALD) {
+            continueAfterConfirmedHair()
+            return
         }
         _uiState.update { it.copy(stage = ImageUploadStage.ASK_LENGTH) }
         chatBot.pushBotMessage("What length would you like to try?", quickReplies = HairLength.entries.map { it.displayName })
     }
 
-    private fun onLengthReply(text: String) {
-        val length = HairLength.entries.firstOrNull { it.displayName == text } ?: return
-        _uiState.update { it.copy(desiredLength = length, stage = ImageUploadStage.ASK_TREATMENT) }
+    private fun onFixReply(text: String) {
+        when {
+            text.equals(RESCAN_LABEL, ignoreCase = true) -> rescan()
+            _uiState.value.fixTarget == null -> onFixCategorySelected(text)
+            else -> onFixValueSelected(text)
+        }
+    }
+
+    private fun onFixCategorySelected(text: String) {
+        when {
+            text.equals(FIX_FACE_SHAPE_LABEL, ignoreCase = true) -> {
+                _uiState.update { it.copy(fixTarget = UploadFixTarget.FACE_SHAPE) }
+                chatBot.pushBotMessage("Pick your face shape:", quickReplies = FaceShape.entries.map { it.displayName })
+            }
+            text.equals(FIX_HAIR_LENGTH_LABEL, ignoreCase = true) -> {
+                _uiState.update { it.copy(fixTarget = UploadFixTarget.HAIR_LENGTH) }
+                chatBot.pushBotMessage("Pick your hair length:", quickReplies = HairLength.entries.map { it.displayName })
+            }
+            text.equals(FIX_HAIR_TEXTURE_LABEL, ignoreCase = true) -> {
+                _uiState.update { it.copy(fixTarget = UploadFixTarget.HAIR_TEXTURE) }
+                chatBot.pushBotMessage("Pick your hair texture:", quickReplies = HairTexture.entries.map { it.displayName })
+            }
+            else -> chatBot.pushBotMessage(
+                "Tap one of the options below, or choose Rescan to analyze the photo again.",
+                quickReplies = fixMenuQuickReplies()
+            )
+        }
+    }
+
+    private fun onFixValueSelected(text: String) {
+        when (_uiState.value.fixTarget) {
+            UploadFixTarget.FACE_SHAPE -> {
+                val shape = FaceShape.entries.firstOrNull { it.displayName.equals(text, ignoreCase = true) } ?: run {
+                    chatBot.pushBotMessage("Pick a face shape from the list.", quickReplies = FaceShape.entries.map { it.displayName })
+                    return
+                }
+                _uiState.update {
+                    it.copy(
+                        scanResult = it.scanResult?.copy(faceShape = shape),
+                        fixTarget = null,
+                        stage = ImageUploadStage.ASK_LENGTH
+                    )
+                }
+                chatBot.pushBotMessage(
+                    "Updated to ${shape.displayName}. What length would you like to try?",
+                    quickReplies = HairLength.entries.map { it.displayName }
+                )
+            }
+            UploadFixTarget.HAIR_LENGTH -> {
+                val length = HairLength.entries.firstOrNull { it.displayName.equals(text, ignoreCase = true) } ?: run {
+                    chatBot.pushBotMessage("Pick a length from the list.", quickReplies = HairLength.entries.map { it.displayName })
+                    return
+                }
+                _uiState.update {
+                    it.copy(
+                        desiredLength = length,
+                        scanResult = it.scanResult?.copy(hairLength = length),
+                        fixTarget = null
+                    )
+                }
+                if (length == HairLength.BALD) {
+                    continueAfterConfirmedHair()
+                    return
+                }
+                _uiState.update { it.copy(stage = ImageUploadStage.ASK_TEXTURE) }
+                chatBot.pushBotMessage(
+                    "Updated to ${length.displayName}. What's your hair texture?",
+                    quickReplies = HairTexture.entries.map { it.displayName }
+                )
+            }
+            UploadFixTarget.HAIR_TEXTURE -> {
+                val texture = HairTexture.entries.firstOrNull { it.displayName.equals(text, ignoreCase = true) } ?: run {
+                    chatBot.pushBotMessage("Pick a texture from the list.", quickReplies = HairTexture.entries.map { it.displayName })
+                    return
+                }
+                _uiState.update {
+                    it.copy(
+                        desiredTexture = texture,
+                        scanResult = it.scanResult?.copy(hairTexture = texture),
+                        fixTarget = null,
+                        stage = ImageUploadStage.ASK_TREATMENT
+                    )
+                }
+                chatBot.pushBotMessage(
+                    "Updated to ${texture.displayName}. Planning any treatment, like rebonding or perming?",
+                    quickReplies = TreatmentPreference.entries.map { it.displayName }
+                )
+            }
+            null -> onFixCategorySelected(text)
+        }
+    }
+
+    private fun rescan() {
+        val uri = _uiState.value.sourceImageUri
+        if (uri == null) {
+            chatBot.pushBotMessage("Upload a photo first, then I can rescan it.")
+            return
+        }
+        _uiState.update {
+            it.copy(
+                stage = ImageUploadStage.ANALYZING,
+                scanResult = null,
+                desiredLength = null,
+                desiredTexture = null,
+                fixTarget = null,
+                afterRescan = true,
+                suggestions = emptyList(),
+                selectedHaircut = null,
+                isGenerating = false,
+                generatedImageUri = null,
+                generationError = null
+            )
+        }
+        analyzePhoto(uri)
+    }
+
+    private fun continueAfterConfirmedHair() {
+        val bald = _uiState.value.scanResult?.hairLength == HairLength.BALD ||
+            _uiState.value.desiredLength == HairLength.BALD
+        if (bald) {
+            suggestWigs()
+            return
+        }
+        askTreatment()
+    }
+
+    private fun suggestWigs() {
+        _uiState.update {
+            it.copy(
+                stage = ImageUploadStage.SUGGESTIONS,
+                afterRescan = false,
+                desiredLength = it.desiredLength ?: HairLength.BALD,
+                desiredTexture = null
+            )
+        }
+        viewModelScope.launch {
+            val result = _uiState.value.scanResult ?: return@launch
+            val matches = haircutRepository.observeClusters().first()
+                .flatMap { it.haircuts }
+                .filter { result.faceShape in it.recommendedFaceShapes }
+            val suggestions = matches.ifEmpty {
+                haircutRepository.observeClusters().first().flatMap { it.haircuts }
+            }.take(6)
+            _uiState.update { it.copy(suggestions = suggestions) }
+            chatBot.pushBotMessage(
+                "Since you don't have hair to style, you can try a wig. " +
+                    "Here are looks that fit your ${result.faceShape.displayName} face — pick one and I'll generate a preview.",
+                haircutOptions = suggestions
+            )
+        }
+    }
+
+    private fun askTreatment() {
+        _uiState.update {
+            it.copy(
+                stage = ImageUploadStage.ASK_TREATMENT,
+                afterRescan = false,
+                desiredLength = it.desiredLength ?: it.scanResult?.hairLength,
+                desiredTexture = it.desiredTexture ?: it.scanResult?.hairTexture
+            )
+        }
         chatBot.pushBotMessage(
-            "Planning any treatment, like rebonding or perming?",
+            "Got it. Any treatment planned, like rebonding or perming?",
             quickReplies = TreatmentPreference.entries.map { it.displayName }
         )
     }
 
+    private fun onLengthReply(text: String) {
+        val length = HairLength.entries.firstOrNull { it.displayName.equals(text, ignoreCase = true) } ?: return
+        _uiState.update {
+            it.copy(
+                desiredLength = length,
+                scanResult = if (length == HairLength.BALD) it.scanResult?.copy(hairLength = HairLength.BALD) else it.scanResult
+            )
+        }
+        if (length == HairLength.BALD) {
+            continueAfterConfirmedHair()
+            return
+        }
+        _uiState.update { it.copy(stage = ImageUploadStage.ASK_TEXTURE) }
+        val detected = _uiState.value.scanResult?.takeIf { it.hairTextureConfidence >= 0.5f }?.hairTexture
+        val hint = detected?.let { " I detected ${it.displayName.lowercase()} hair." }.orEmpty()
+        chatBot.pushBotMessage(
+            "What's your hair texture?$hint",
+            quickReplies = HairTexture.entries.map { it.displayName }
+        )
+    }
+
+    private fun onTextureReply(text: String) {
+        val texture = HairTexture.entries.firstOrNull { it.displayName.equals(text, ignoreCase = true) } ?: return
+        _uiState.update {
+            it.copy(
+                desiredTexture = texture,
+                scanResult = it.scanResult?.copy(hairTexture = texture)
+            )
+        }
+        askTreatment()
+    }
+
     private fun onTreatmentReply(text: String) {
-        if (TreatmentPreference.entries.none { it.displayName == text }) return
+        if (TreatmentPreference.entries.none { it.displayName.equals(text, ignoreCase = true) }) return
         _uiState.update { it.copy(stage = ImageUploadStage.SUGGESTIONS) }
         viewModelScope.launch {
             val result = _uiState.value.scanResult ?: return@launch
             val length = _uiState.value.desiredLength ?: result.hairLength
-            val matches = haircutRepository.observeMatching(result.faceShape, length, result.hairTexture).first()
+            val texture = _uiState.value.desiredTexture ?: result.hairTexture
+            val matches = haircutRepository.observeMatching(result.faceShape, length, texture).first()
             val suggestions = matches.ifEmpty { haircutRepository.observeClusters().first().flatMap { it.haircuts }.take(6) }
             _uiState.update { it.copy(suggestions = suggestions) }
             chatBot.pushBotMessage(
@@ -138,4 +359,34 @@ class ImageUploadViewModel(
             }
         }
     }
+}
+
+private fun fixMenuQuickReplies(includeTexture: Boolean = true): List<String> = buildList {
+    add(FIX_FACE_SHAPE_LABEL)
+    add(FIX_HAIR_LENGTH_LABEL)
+    if (includeTexture) add(FIX_HAIR_TEXTURE_LABEL)
+    add(RESCAN_LABEL)
+}
+
+private const val FIX_FACE_SHAPE_LABEL = "Face shape"
+private const val FIX_HAIR_LENGTH_LABEL = "Hair length"
+private const val FIX_HAIR_TEXTURE_LABEL = "Hair texture"
+private const val RESCAN_LABEL = "Rescan"
+
+private fun hairScanPhrase(result: ScanResult): String {
+    if (result.hairLength == HairLength.BALD) {
+        return " and I don't see much hair (bald)"
+    }
+    val details = buildList {
+        if (result.hairLengthConfidence >= 0.5f) {
+            add("${result.hairLength.displayName.lowercase()} hair")
+        }
+        if (result.hairTextureConfidence >= 0.5f) {
+            add("${result.hairTexture.displayName.lowercase()} texture")
+        }
+        if (result.hairColorConfidence >= 0.5f && result.hairColor != HairColor.OTHER) {
+            add("${result.hairColor.displayName.lowercase()} color")
+        }
+    }
+    return if (details.isEmpty()) "" else " and ${details.joinToString(", ")}"
 }

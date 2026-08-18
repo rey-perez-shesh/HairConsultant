@@ -51,6 +51,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hairconsultant.app.domain.model.Consultation
+import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.ui.components.StarRatingBar
 import kotlinx.coroutines.launch
 
@@ -206,7 +207,12 @@ private fun ConsultationRow(consultation: Consultation, onToggleFavorite: () -> 
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    "${consultation.scanResult.hairLength.displayName} • ${consultation.scanResult.hairTexture.displayName}",
+                    "${consultation.scanResult.hairLength.displayName}" +
+                        if (consultation.scanResult.hairLength == HairLength.BALD) {
+                            ""
+                        } else {
+                            " • ${consultation.scanResult.hairTexture.displayName}"
+                        },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

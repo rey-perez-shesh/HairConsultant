@@ -8,6 +8,7 @@ enum class Gender(val displayName: String) {
 }
 
 enum class HairLength(val displayName: String) {
+    BALD("Bald"),
     SHORT("Short"),
     MEDIUM("Medium"),
     LONG("Long")
@@ -18,6 +19,15 @@ enum class HairTexture(val displayName: String) {
     WAVY("Wavy"),
     CURLY("Curly"),
     COILY("Coily")
+}
+
+enum class HairColor(val displayName: String) {
+    BLACK("Black"),
+    BROWN("Brown"),
+    BLONDE("Blonde"),
+    RED("Red"),
+    GRAY("Gray"),
+    OTHER("Other")
 }
 
 enum class FaceShape(val displayName: String) {

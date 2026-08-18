@@ -88,7 +88,7 @@ fun HairConsultantNavHost(container: AppContainer) {
             }
             composable(Screen.FaceScan.route) {
                 val viewModel: FaceScanViewModel = viewModel(factory = ViewModelFactory(container) { c ->
-                    FaceScanViewModel(c.faceAnalyzer, c.haircutRepository)
+                    FaceScanViewModel(c.faceAnalyzer, c.haircutRepository, c.faceLandmarkStore)
                 })
                 FaceScanScreen(viewModel = viewModel)
             }
