@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 data class RegisterUiState(
     val email: String = "",
@@ -57,6 +58,9 @@ class RegisterViewModel(
                         createdAtEpochMillis = System.currentTimeMillis()
                     )
                 )
+                // Firebase signs the new user in automatically; sign back out so registration
+                // lands on the login page instead of skipping straight into the app.
+                authRepository.logout()
             }
             _uiState.update {
                 it.copy(
@@ -70,10 +74,20 @@ class RegisterViewModel(
 
     private fun validate(state: RegisterUiState): String? = when {
         state.email.isBlank() -> "Please enter your email."
-        state.password.length < 6 -> "Password must be at least 6 characters."
+        !EMAIL_REGEX.matches(state.email.trim()) -> "Please enter a valid email address containing \"@\"."
+        state.password.length < 8 -> "Password must be at least 8 characters."
+        !state.password.any { it.isUpperCase() } -> "Password must contain at least one uppercase letter."
+        !state.password.any { it.isLowerCase() } -> "Password must contain at least one lowercase letter."
+        !state.password.any { it.isDigit() } -> "Password must contain at least one number."
+        state.password.none { !it.isLetterOrDigit() } -> "Password must contain at least one special character."
         state.password != state.confirmPassword -> "Passwords do not match."
         state.birthdayEpochDay == null -> "Please select your birthday."
+        state.birthdayEpochDay > LocalDate.now().toEpochDay() -> "Birthday cannot be in the future."
         state.gender == null -> "Please select your gender."
         else -> null
+    }
+
+    private companion object {
+        val EMAIL_REGEX = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
     }
 }

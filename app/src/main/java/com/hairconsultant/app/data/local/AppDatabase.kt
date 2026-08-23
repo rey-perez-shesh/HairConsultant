@@ -18,7 +18,7 @@ import com.hairconsultant.app.data.local.entity.UserEntity
  */
 @Database(
     entities = [UserEntity::class, HaircutEntity::class, ConsultationEntity::class, FeedbackEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

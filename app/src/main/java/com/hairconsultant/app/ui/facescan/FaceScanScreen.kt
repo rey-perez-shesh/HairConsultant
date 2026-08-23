@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -85,6 +87,16 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
                 onClick = viewModel::clearTryOn,
                 modifier = Modifier.align(Alignment.TopEnd).padding(20.dp)
             ) { Icon(Icons.Filled.Close, contentDescription = "Stop trying on") }
+        }
+
+        val hasInitialAnalysis = uiState.stage != FaceScanStage.IDLE && uiState.stage != FaceScanStage.ANALYZING
+        if (hasInitialAnalysis) {
+            ExtendedFloatingActionButton(
+                onClick = viewModel::rescan,
+                icon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+                text = { Text("Rescan") },
+                modifier = Modifier.align(Alignment.TopStart).padding(20.dp)
+            )
         }
 
         if (uiState.stage == FaceScanStage.ANALYZING) {

@@ -5,7 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.hairconsultant.app.data.analysis.FaceAnalyzer
 import com.hairconsultant.app.data.analysis.FaceLandmarkStore
 import com.hairconsultant.app.data.analysis.NoFaceDetectedException
+import com.hairconsultant.app.data.remote.firebase.AuthRepository
+import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.HaircutRepository
+import com.hairconsultant.app.data.repository.UserRepository
+import com.hairconsultant.app.domain.model.Consultation
+import com.hairconsultant.app.domain.model.ConsultationSource
 import com.hairconsultant.app.domain.model.FaceShape
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairColor
@@ -22,6 +27,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 enum class FaceScanStage { IDLE, ANALYZING, CONFIRM_RESULT, ASK_FIX, ASK_LENGTH, ASK_TEXTURE, ASK_TREATMENT, SUGGESTIONS }
 
@@ -42,7 +48,10 @@ data class FaceScanUiState(
 class FaceScanViewModel(
     private val faceAnalyzer: FaceAnalyzer,
     private val haircutRepository: HaircutRepository,
-    val landmarkStore: FaceLandmarkStore
+    val landmarkStore: FaceLandmarkStore,
+    private val authRepository: AuthRepository,
+    private val userRepository: UserRepository,
+    private val consultationRepository: ConsultationRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(FaceScanUiState())
@@ -52,6 +61,8 @@ class FaceScanViewModel(
     val chatState: StateFlow<ChatBotUiState> = chatBot.state.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5000), ChatBotUiState()
     )
+
+    private var consultationId = UUID.randomUUID().toString()
 
     fun startScan() {
         if (_uiState.value.stage == FaceScanStage.ANALYZING) return
@@ -223,7 +234,8 @@ class FaceScanViewModel(
         }
     }
 
-    private fun rescan() {
+    fun rescan() {
+        consultationId = UUID.randomUUID().toString()
         _uiState.update { FaceScanUiState(stage = FaceScanStage.IDLE, afterRescan = true) }
         chatBot.pushBotMessage("Rescanning — hold still...")
         startScan()
@@ -262,6 +274,8 @@ class FaceScanViewModel(
                     "Here are looks that fit your ${result.faceShape.displayName} face — tap one to try it on.",
                 haircutOptions = suggestions
             )
+            persistConsultation(selectedHaircut = null)
+            persistPreferences()
         }
     }
 
@@ -327,15 +341,54 @@ class FaceScanViewModel(
                     "Tap one to try it on!",
                 haircutOptions = suggestions
             )
+            persistConsultation(selectedHaircut = null)
+            persistPreferences()
         }
     }
 
     fun onHaircutTryOn(haircut: Haircut) {
         _uiState.update { it.copy(triedOnHaircut = haircut) }
+        persistConsultation(selectedHaircut = haircut)
     }
 
     fun clearTryOn() {
         _uiState.update { it.copy(triedOnHaircut = null) }
+    }
+
+    /** Saves this session as a consultation (Room now, Firestore in the background) once a scan has a result. */
+    private fun persistConsultation(selectedHaircut: Haircut?) {
+        val uid = authRepository.currentUser.value?.uid ?: return
+        val result = _uiState.value.scanResult ?: return
+        viewModelScope.launch {
+            consultationRepository.save(
+                Consultation(
+                    id = consultationId,
+                    userId = uid,
+                    source = ConsultationSource.FACE_SCAN,
+                    scanResult = result,
+                    selectedHaircut = selectedHaircut,
+                    sourceImageUrl = null,
+                    resultImageUrl = null,
+                    createdAtEpochMillis = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    /** Remembers the confirmed length/texture/treatment on the user's profile for future personalization. */
+    private fun persistPreferences() {
+        val uid = authRepository.currentUser.value?.uid ?: return
+        val state = _uiState.value
+        viewModelScope.launch {
+            val current = userRepository.observe(uid).first() ?: return@launch
+            userRepository.save(
+                current.copy(
+                    preferredHairLength = state.desiredLength ?: current.preferredHairLength,
+                    preferredHairTexture = state.desiredTexture ?: current.preferredHairTexture,
+                    preferredTreatment = state.desiredTreatment ?: current.preferredTreatment
+                )
+            )
+        }
     }
 }
 

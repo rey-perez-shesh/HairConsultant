@@ -4,6 +4,9 @@ import com.hairconsultant.app.data.local.dao.UserDao
 import com.hairconsultant.app.data.local.entity.UserEntity
 import com.hairconsultant.app.data.remote.firebase.UserProfileRemoteRepository
 import com.hairconsultant.app.domain.model.Gender
+import com.hairconsultant.app.domain.model.HairLength
+import com.hairconsultant.app.domain.model.HairTexture
+import com.hairconsultant.app.domain.model.TreatmentPreference
 import com.hairconsultant.app.domain.model.User
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -38,7 +41,10 @@ private fun UserEntity.toDomain() = User(
     birthdayEpochDay = birthdayEpochDay,
     gender = runCatching { Gender.valueOf(gender) }.getOrDefault(Gender.PREFER_NOT_TO_SAY),
     photoUrl = photoUrl,
-    createdAtEpochMillis = createdAtEpochMillis
+    createdAtEpochMillis = createdAtEpochMillis,
+    preferredHairLength = preferredHairLength?.let { runCatching { HairLength.valueOf(it) }.getOrNull() },
+    preferredHairTexture = preferredHairTexture?.let { runCatching { HairTexture.valueOf(it) }.getOrNull() },
+    preferredTreatment = preferredTreatment?.let { runCatching { TreatmentPreference.valueOf(it) }.getOrNull() }
 )
 
 private fun User.toEntity() = UserEntity(
@@ -48,5 +54,8 @@ private fun User.toEntity() = UserEntity(
     birthdayEpochDay = birthdayEpochDay,
     gender = gender.name,
     photoUrl = photoUrl,
-    createdAtEpochMillis = createdAtEpochMillis
+    createdAtEpochMillis = createdAtEpochMillis,
+    preferredHairLength = preferredHairLength?.name,
+    preferredHairTexture = preferredHairTexture?.name,
+    preferredTreatment = preferredTreatment?.name
 )

@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -85,14 +87,26 @@ fun ImageUploadScreen(viewModel: ImageUploadViewModel) {
                 }
             }
 
-            Button(
-                onClick = {
-                    pickImageLauncher.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
-                },
-                modifier = Modifier.align(Alignment.TopStart).padding(20.dp)
-            ) { Text("Change Photo") }
+            Row(
+                modifier = Modifier.align(Alignment.TopStart).padding(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        pickImageLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    }
+                ) { Text("Change Photo") }
+
+                val hasInitialAnalysis = uiState.stage != ImageUploadStage.IDLE && uiState.stage != ImageUploadStage.ANALYZING
+                if (hasInitialAnalysis) {
+                    Button(onClick = viewModel::rescan) {
+                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                        Text("Rescan")
+                    }
+                }
+            }
 
             if (uiState.suggestions.isNotEmpty()) {
                 TryOnStrip(

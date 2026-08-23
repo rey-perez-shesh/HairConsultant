@@ -35,9 +35,7 @@ enum class FaceShape(val displayName: String) {
     ROUND("Round"),
     SQUARE("Square"),
     HEART("Heart"),
-    LONG("Long"),
-    DIAMOND("Diamond"),
-    TRIANGLE("Triangle")
+    DIAMOND("Diamond")
 }
 
 /** Optional chemical treatment the user wants their next style to involve. */

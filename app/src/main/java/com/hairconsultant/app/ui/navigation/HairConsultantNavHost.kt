@@ -75,7 +75,7 @@ fun HairConsultantNavHost(container: AppContainer) {
                 RegisterScreen(
                     viewModel = viewModel,
                     onRegisterSuccess = {
-                        navController.navigate(Screen.Home.route) { popUpTo(0) }
+                        navController.navigate(Screen.Login.route) { popUpTo(0) }
                     },
                     onBackToLoginClick = { navController.popBackStack() }
                 )
@@ -88,13 +88,28 @@ fun HairConsultantNavHost(container: AppContainer) {
             }
             composable(Screen.FaceScan.route) {
                 val viewModel: FaceScanViewModel = viewModel(factory = ViewModelFactory(container) { c ->
-                    FaceScanViewModel(c.faceAnalyzer, c.haircutRepository, c.faceLandmarkStore)
+                    FaceScanViewModel(
+                        c.faceAnalyzer,
+                        c.haircutRepository,
+                        c.faceLandmarkStore,
+                        c.authRepository,
+                        c.userRepository,
+                        c.consultationRepository
+                    )
                 })
                 FaceScanScreen(viewModel = viewModel)
             }
             composable(Screen.ImageUpload.route) {
                 val viewModel: ImageUploadViewModel = viewModel(factory = ViewModelFactory(container) { c ->
-                    ImageUploadViewModel(c.faceAnalyzer, c.haircutRepository, c.geminiImageRepository)
+                    ImageUploadViewModel(
+                        c.faceAnalyzer,
+                        c.haircutRepository,
+                        c.geminiImageRepository,
+                        c.authRepository,
+                        c.userRepository,
+                        c.consultationRepository,
+                        c.mediaStorageRepository
+                    )
                 })
                 ImageUploadScreen(viewModel = viewModel)
             }

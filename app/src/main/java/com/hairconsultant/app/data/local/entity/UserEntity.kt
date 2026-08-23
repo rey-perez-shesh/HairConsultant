@@ -12,5 +12,8 @@ data class UserEntity(
     val birthdayEpochDay: Long,
     val gender: String,
     val photoUrl: String?,
-    val createdAtEpochMillis: Long
+    val createdAtEpochMillis: Long,
+    val preferredHairLength: String? = null,
+    val preferredHairTexture: String? = null,
+    val preferredTreatment: String? = null
 )

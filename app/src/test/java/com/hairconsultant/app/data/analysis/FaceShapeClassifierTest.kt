@@ -64,20 +64,6 @@ class FaceShapeClassifierTest {
     }
 
     @Test
-    fun triangle() {
-        assertEquals(
-            FaceShape.TRIANGLE,
-            classify(
-                topY = 0.20f,
-                chinY = 0.82f,
-                cheek = 0.28f to 0.72f,
-                jaw = 0.20f to 0.80f,
-                forehead = 0.34f to 0.66f
-            )
-        )
-    }
-
-    @Test
     fun diamond() {
         assertEquals(
             FaceShape.DIAMOND,
@@ -87,20 +73,6 @@ class FaceShapeClassifierTest {
                 cheek = 0.22f to 0.78f,
                 jaw = 0.34f to 0.66f,
                 forehead = 0.34f to 0.66f
-            )
-        )
-    }
-
-    @Test
-    fun longFace() {
-        assertEquals(
-            FaceShape.LONG,
-            classify(
-                topY = 0.10f,
-                chinY = 0.92f,
-                cheek = 0.32f to 0.68f,
-                jaw = 0.34f to 0.66f,
-                forehead = 0.33f to 0.67f
             )
         )
     }
@@ -119,8 +91,8 @@ class FaceShapeClassifierTest {
         points[FaceShapeClassifier.RIGHT_CHEEK] = LandmarkPoint(cheek.second, 0.50f)
         points[FaceShapeClassifier.LEFT_JAW] = LandmarkPoint(jaw.first, 0.72f)
         points[FaceShapeClassifier.RIGHT_JAW] = LandmarkPoint(jaw.second, 0.72f)
-        points[FaceShapeClassifier.LEFT_FOREHEAD] = LandmarkPoint(forehead.first, 0.28f)
-        points[FaceShapeClassifier.RIGHT_FOREHEAD] = LandmarkPoint(forehead.second, 0.28f)
+        points[FaceShapeClassifier.LEFT_TEMPLE] = LandmarkPoint(forehead.first, 0.28f)
+        points[FaceShapeClassifier.RIGHT_TEMPLE] = LandmarkPoint(forehead.second, 0.28f)
         val result = FaceShapeClassifier.classify(points, 1000, 1000)
         assertNotNull(result)
         return result!!.shape

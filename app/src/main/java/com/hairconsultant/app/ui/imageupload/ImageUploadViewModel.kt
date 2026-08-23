@@ -5,8 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hairconsultant.app.data.analysis.FaceAnalyzer
 import com.hairconsultant.app.data.analysis.NoFaceDetectedException
+import com.hairconsultant.app.data.remote.firebase.AuthRepository
+import com.hairconsultant.app.data.remote.firebase.MediaStorageRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiImageRepository
+import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.HaircutRepository
+import com.hairconsultant.app.data.repository.UserRepository
+import com.hairconsultant.app.domain.model.Consultation
+import com.hairconsultant.app.domain.model.ConsultationSource
 import com.hairconsultant.app.domain.model.FaceShape
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairColor
@@ -23,6 +29,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 enum class ImageUploadStage { IDLE, ANALYZING, CONFIRM_RESULT, ASK_FIX, ASK_LENGTH, ASK_TEXTURE, ASK_TREATMENT, SUGGESTIONS }
 
@@ -34,19 +41,26 @@ data class ImageUploadUiState(
     val scanResult: ScanResult? = null,
     val desiredLength: HairLength? = null,
     val desiredTexture: HairTexture? = null,
+    val desiredTreatment: TreatmentPreference? = null,
     val fixTarget: UploadFixTarget? = null,
     val afterRescan: Boolean = false,
     val suggestions: List<Haircut> = emptyList(),
     val selectedHaircut: Haircut? = null,
     val isGenerating: Boolean = false,
     val generatedImageUri: Uri? = null,
-    val generationError: String? = null
+    val generationError: String? = null,
+    val remoteSourceImageUrl: String? = null,
+    val remoteResultImageUrl: String? = null
 )
 
 class ImageUploadViewModel(
     private val faceAnalyzer: FaceAnalyzer,
     private val haircutRepository: HaircutRepository,
-    private val geminiImageRepository: GeminiImageRepository
+    private val geminiImageRepository: GeminiImageRepository,
+    private val authRepository: AuthRepository,
+    private val userRepository: UserRepository,
+    private val consultationRepository: ConsultationRepository,
+    private val mediaStorageRepository: MediaStorageRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ImageUploadUiState())
@@ -57,7 +71,10 @@ class ImageUploadViewModel(
         viewModelScope, SharingStarted.WhileSubscribed(5000), ChatBotUiState()
     )
 
+    private var consultationId = UUID.randomUUID().toString()
+
     fun onImagePicked(uri: Uri) {
+        consultationId = UUID.randomUUID().toString()
         _uiState.update {
             ImageUploadUiState(sourceImageUri = uri, stage = ImageUploadStage.ANALYZING)
         }
@@ -214,25 +231,28 @@ class ImageUploadViewModel(
         }
     }
 
-    private fun rescan() {
+    fun rescan() {
         val uri = _uiState.value.sourceImageUri
         if (uri == null) {
             chatBot.pushBotMessage("Upload a photo first, then I can rescan it.")
             return
         }
+        consultationId = UUID.randomUUID().toString()
         _uiState.update {
             it.copy(
                 stage = ImageUploadStage.ANALYZING,
                 scanResult = null,
                 desiredLength = null,
                 desiredTexture = null,
+                desiredTreatment = null,
                 fixTarget = null,
                 afterRescan = true,
                 suggestions = emptyList(),
                 selectedHaircut = null,
                 isGenerating = false,
                 generatedImageUri = null,
-                generationError = null
+                generationError = null,
+                remoteResultImageUrl = null
             )
         }
         analyzePhoto(uri)
@@ -271,6 +291,8 @@ class ImageUploadViewModel(
                     "Here are looks that fit your ${result.faceShape.displayName} face — pick one and I'll generate a preview.",
                 haircutOptions = suggestions
             )
+            persistConsultation(selectedHaircut = null)
+            persistPreferences()
         }
     }
 
@@ -322,8 +344,8 @@ class ImageUploadViewModel(
     }
 
     private fun onTreatmentReply(text: String) {
-        if (TreatmentPreference.entries.none { it.displayName.equals(text, ignoreCase = true) }) return
-        _uiState.update { it.copy(stage = ImageUploadStage.SUGGESTIONS) }
+        val treatment = TreatmentPreference.entries.firstOrNull { it.displayName.equals(text, ignoreCase = true) } ?: return
+        _uiState.update { it.copy(desiredTreatment = treatment, stage = ImageUploadStage.SUGGESTIONS) }
         viewModelScope.launch {
             val result = _uiState.value.scanResult ?: return@launch
             val length = _uiState.value.desiredLength ?: result.hairLength
@@ -336,6 +358,8 @@ class ImageUploadViewModel(
                     "Pick one and I'll generate a preview on your photo.",
                 haircutOptions = suggestions
             )
+            persistConsultation(selectedHaircut = null)
+            persistPreferences()
         }
     }
 
@@ -350,13 +374,68 @@ class ImageUploadViewModel(
             result.onSuccess { generatedUri ->
                 _uiState.update { it.copy(isGenerating = false, generatedImageUri = generatedUri) }
                 chatBot.pushBotMessage("Here's your new look!")
+                uploadResultAndPersist(haircut, generatedUri)
             }.onFailure { error ->
                 _uiState.update { it.copy(isGenerating = false, generationError = error.message) }
                 chatBot.pushBotMessage(
                     "I couldn't generate that preview yet (${error.message}). " +
                         "Showing the style's reference photo instead."
                 )
+                persistConsultation(selectedHaircut = haircut)
             }
+        }
+    }
+
+    /** Uploads the generated try-on preview to Storage, then saves the consultation with its URL. */
+    private fun uploadResultAndPersist(haircut: Haircut, generatedUri: Uri) {
+        val uid = authRepository.currentUser.value?.uid ?: return
+        viewModelScope.launch {
+            val resultUrl = runCatching { mediaStorageRepository.uploadTryOnResult(uid, generatedUri) }
+                .getOrElse { generatedUri.toString() }
+            _uiState.update { it.copy(remoteResultImageUrl = resultUrl) }
+            persistConsultation(selectedHaircut = haircut)
+        }
+    }
+
+    /** Saves this session as a consultation (Room now, Firestore in the background) once a scan has a result. */
+    private fun persistConsultation(selectedHaircut: Haircut?) {
+        val uid = authRepository.currentUser.value?.uid ?: return
+        val state = _uiState.value
+        val result = state.scanResult ?: return
+        viewModelScope.launch {
+            val sourceUrl = state.remoteSourceImageUrl ?: state.sourceImageUri?.let { uri ->
+                runCatching { mediaStorageRepository.uploadConsultationPhoto(uid, uri) }
+                    .getOrElse { uri.toString() }
+                    .also { url -> _uiState.update { it.copy(remoteSourceImageUrl = url) } }
+            }
+            consultationRepository.save(
+                Consultation(
+                    id = consultationId,
+                    userId = uid,
+                    source = ConsultationSource.IMAGE_UPLOAD,
+                    scanResult = result,
+                    selectedHaircut = selectedHaircut,
+                    sourceImageUrl = sourceUrl,
+                    resultImageUrl = _uiState.value.remoteResultImageUrl,
+                    createdAtEpochMillis = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    /** Remembers the confirmed length/texture/treatment on the user's profile for future personalization. */
+    private fun persistPreferences() {
+        val uid = authRepository.currentUser.value?.uid ?: return
+        val state = _uiState.value
+        viewModelScope.launch {
+            val current = userRepository.observe(uid).first() ?: return@launch
+            userRepository.save(
+                current.copy(
+                    preferredHairLength = state.desiredLength ?: current.preferredHairLength,
+                    preferredHairTexture = state.desiredTexture ?: current.preferredHairTexture,
+                    preferredTreatment = state.desiredTreatment ?: current.preferredTreatment
+                )
+            )
         }
     }
 }

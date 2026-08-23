@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.google.gms.google.services)
     // Apply the Google Services plugin once google-services.json is added:
     // id("com.google.gms.google-services")
 }
@@ -85,6 +86,8 @@ kotlin {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -96,6 +99,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
+    implementation(libs.googleid)
     debugImplementation(libs.androidx.ui.tooling)
 
     implementation(libs.androidx.navigation.compose)
@@ -132,11 +136,14 @@ dependencies {
     implementation(libs.retrofit.converter.gson)
     implementation(libs.okhttp.logging.interceptor)
 
-    // Firebase (Auth, Firestore, Storage)
+    // Firebase (Auth, Firestore, Storage, Realtime Database)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
+    // Connected per project setup; no data model is stored here yet. Firestore is the
+    // source of truth for profiles/consultations/favorites (see AppContainer.realtimeDatabase).
+    implementation(libs.firebase.database)
 
     // Runtime permissions (camera)
     implementation(libs.accompanist.permissions)

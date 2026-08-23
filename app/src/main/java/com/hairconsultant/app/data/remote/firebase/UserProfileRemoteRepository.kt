@@ -2,6 +2,9 @@ package com.hairconsultant.app.data.remote.firebase
 
 import com.google.firebase.firestore.FirebaseFirestore
 import com.hairconsultant.app.domain.model.Gender
+import com.hairconsultant.app.domain.model.HairLength
+import com.hairconsultant.app.domain.model.HairTexture
+import com.hairconsultant.app.domain.model.TreatmentPreference
 import com.hairconsultant.app.domain.model.User
 import kotlinx.coroutines.tasks.await
 
@@ -28,7 +31,13 @@ class FirestoreUserProfileRepository(
             gender = runCatching { Gender.valueOf(snapshot.getString("gender").orEmpty()) }
                 .getOrDefault(Gender.PREFER_NOT_TO_SAY),
             photoUrl = snapshot.getString("photoUrl"),
-            createdAtEpochMillis = snapshot.getLong("createdAtEpochMillis") ?: 0L
+            createdAtEpochMillis = snapshot.getLong("createdAtEpochMillis") ?: 0L,
+            preferredHairLength = snapshot.getString("preferredHairLength")
+                ?.let { runCatching { HairLength.valueOf(it) }.getOrNull() },
+            preferredHairTexture = snapshot.getString("preferredHairTexture")
+                ?.let { runCatching { HairTexture.valueOf(it) }.getOrNull() },
+            preferredTreatment = snapshot.getString("preferredTreatment")
+                ?.let { runCatching { TreatmentPreference.valueOf(it) }.getOrNull() }
         )
     }
 
@@ -40,7 +49,10 @@ class FirestoreUserProfileRepository(
                 "birthdayEpochDay" to user.birthdayEpochDay,
                 "gender" to user.gender.name,
                 "photoUrl" to user.photoUrl,
-                "createdAtEpochMillis" to user.createdAtEpochMillis
+                "createdAtEpochMillis" to user.createdAtEpochMillis,
+                "preferredHairLength" to user.preferredHairLength?.name,
+                "preferredHairTexture" to user.preferredHairTexture?.name,
+                "preferredTreatment" to user.preferredTreatment?.name
             )
         ).await()
     }

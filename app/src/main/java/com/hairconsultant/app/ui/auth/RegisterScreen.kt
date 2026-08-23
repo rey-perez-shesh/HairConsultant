@@ -26,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -93,7 +94,9 @@ fun RegisterScreen(
                 value = uiState.password,
                 onValueChange = viewModel::onPasswordChange,
                 label = { Text("Password") },
+                supportingText = { Text("At least 8 characters, with uppercase, lowercase, a number, and a special character.") },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -103,6 +106,7 @@ fun RegisterScreen(
                 onValueChange = viewModel::onConfirmPasswordChange,
                 label = { Text("Confirm Password") },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -163,7 +167,20 @@ fun RegisterScreen(
     }
 
     if (showDatePicker) {
-        val datePickerState = rememberDatePickerState()
+        val todayMillis = remember {
+            LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        }
+        val datePickerState = rememberDatePickerState(
+            selectableDates = remember {
+                object : SelectableDates {
+                    override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+                        utcTimeMillis <= todayMillis
+
+                    override fun isSelectableYear(year: Int): Boolean =
+                        year <= LocalDate.now().year
+                }
+            }
+        )
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
