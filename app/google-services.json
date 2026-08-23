@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "207070914574",
+    "project_id": "hiarconsultant",
+    "storage_bucket": "hiarconsultant.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:207070914574:android:9220f59c262d786508745f",
+        "android_client_info": {
+          "package_name": "com.hairconsultant.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyArsF9zvHIW4ZC8llz1v8h-KF1WvDkQMTU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
