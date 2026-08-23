@@ -11,6 +11,7 @@ import com.hairconsultant.app.data.remote.gemini.GeminiImageRepository
 import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.HaircutRepository
 import com.hairconsultant.app.data.repository.UserRepository
+import com.hairconsultant.app.domain.model.ChatSender
 import com.hairconsultant.app.domain.model.Consultation
 import com.hairconsultant.app.domain.model.ConsultationSource
 import com.hairconsultant.app.domain.model.FaceShape
@@ -370,7 +371,8 @@ class ImageUploadViewModel(
         }
         chatBot.pushBotMessage("Generating \"${haircut.name}\" on your photo...")
         viewModelScope.launch {
-            val result = geminiImageRepository.generateHaircutPreview(sourceUri, haircut)
+            val prompt = buildStylePrompt(haircut)
+            val result = geminiImageRepository.generateHaircutPreview(sourceUri, prompt)
             result.onSuccess { generatedUri ->
                 _uiState.update { it.copy(isGenerating = false, generatedImageUri = generatedUri) }
                 chatBot.pushBotMessage("Here's your new look!")
@@ -382,6 +384,31 @@ class ImageUploadViewModel(
                         "Showing the style's reference photo instead."
                 )
                 persistConsultation(selectedHaircut = haircut)
+            }
+        }
+    }
+
+    /**
+     * Builds the Gemini image prompt from the chatbot conversation: the face shape the user
+     * confirmed, the length/texture/treatment they chose while chatting, and everything else
+     * they typed or tapped, so the generated preview reflects what was actually discussed.
+     */
+    private fun buildStylePrompt(haircut: Haircut): String {
+        val state = _uiState.value
+        val conversationContext = chatBot.state.value.messages
+            .filter { it.sender == ChatSender.USER }
+            .joinToString(separator = "; ") { it.text }
+            .take(600)
+        return buildString {
+            append("Apply the \"${haircut.name}\" hairstyle (${haircut.length.displayName.lowercase()} length, ")
+            append("${haircut.texture.displayName.lowercase()} texture) to the person in the photo, ")
+            append("keeping their face, skin tone, and background unchanged.")
+            state.scanResult?.let { append(" Their face shape is ${it.faceShape.displayName.lowercase()}.") }
+            (state.desiredTreatment ?: haircut.treatment).takeIf { it != TreatmentPreference.NONE }?.let {
+                append(" Include a ${it.displayName.lowercase()} treatment look.")
+            }
+            if (conversationContext.isNotBlank()) {
+                append(" Context from the conversation with the user: $conversationContext.")
             }
         }
     }
