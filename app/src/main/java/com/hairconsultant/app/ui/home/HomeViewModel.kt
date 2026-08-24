@@ -2,6 +2,8 @@ package com.hairconsultant.app.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
+import com.hairconsultant.app.data.remote.gemini.describeForChatContext
 import com.hairconsultant.app.data.repository.HaircutRepository
 import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.HaircutCluster
@@ -20,7 +22,10 @@ data class HomeUiState(
     val selectedHaircut: Haircut? = null
 )
 
-class HomeViewModel(private val haircutRepository: HaircutRepository) : ViewModel() {
+class HomeViewModel(
+    private val haircutRepository: HaircutRepository,
+    private val chatRepository: GeminiChatRepository
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState
@@ -51,13 +56,30 @@ class HomeViewModel(private val haircutRepository: HaircutRepository) : ViewMode
         _uiState.update { it.copy(selectedHaircut = null) }
     }
 
-    private fun respondToChat(text: String) {
-        val clusters = _uiState.value.clusters
-        val suggestion = clusters.flatMap { it.haircuts }.shuffled().take(4)
-        chatBot.pushBotMessage(
-            "Here are a few styles you might like based on \"$text\". " +
-                "For a personalized match, try the Face Scan or Image Upload tab so I can see your face shape.",
-            haircutOptions = suggestion
-        )
+    /** Routes free-form chat through the AI consultant, grounded on whatever catalog entries match. */
+    private suspend fun respondToChat(text: String) {
+        val catalog = _uiState.value.clusters.flatMap { it.haircuts }
+        val matched = matchHaircuts(catalog, text)
+        val candidatesForContext = matched.ifEmpty { catalog }
+        val candidatesForGallery = matched.ifEmpty { catalog.shuffled() }.take(4)
+        val context = "Candidate haircuts from the catalog:\n${candidatesForContext.describeForChatContext()}"
+        chatRepository.reply(chatBot.state.value.messages, text, context)
+            .onSuccess { reply -> chatBot.pushBotMessage(reply, haircutOptions = candidatesForGallery) }
+            .onFailure { error ->
+                chatBot.pushBotMessage(
+                    "I couldn't reach the AI consultant right now (${error.message}). " +
+                        "Try the Face Scan or Image Upload tab for a personalized match in the meantime.",
+                    haircutOptions = candidatesForGallery
+                )
+            }
+    }
+}
+
+private fun matchHaircuts(catalog: List<Haircut>, text: String): List<Haircut> {
+    val lower = text.lowercase()
+    return catalog.filter { haircut ->
+        lower.contains(haircut.length.displayName.lowercase()) ||
+            lower.contains(haircut.texture.displayName.lowercase()) ||
+            haircut.recommendedFaceShapes.any { lower.contains(it.displayName.lowercase()) }
     }
 }

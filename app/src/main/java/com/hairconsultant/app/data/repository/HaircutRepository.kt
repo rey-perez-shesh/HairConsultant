@@ -3,8 +3,7 @@ package com.hairconsultant.app.data.repository
 import com.hairconsultant.app.data.SampleData
 import com.hairconsultant.app.data.local.dao.HaircutDao
 import com.hairconsultant.app.data.local.entity.HaircutEntity
-import com.hairconsultant.app.data.remote.api.ApiService
-import com.hairconsultant.app.data.remote.api.dto.HaircutDto
+import com.hairconsultant.app.data.remote.firebase.HaircutRemoteRepository
 import com.hairconsultant.app.domain.model.FaceShape
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
@@ -23,7 +22,7 @@ interface HaircutRepository {
 
 class HaircutRepositoryImpl(
     private val haircutDao: HaircutDao,
-    private val apiService: ApiService
+    private val remote: HaircutRemoteRepository
 ) : HaircutRepository {
 
     override fun observeClusters(): Flow<List<HaircutCluster>> = haircutDao.observeAll().map { entities ->
@@ -48,7 +47,10 @@ class HaircutRepositoryImpl(
     }
 
     override suspend fun refresh() {
-        val remoteHaircuts = runCatching { apiService.getHaircuts().map { it.toDomain() } }.getOrNull()
+        // One-time migration: populates Firestore's "haircuts" collection from the curated
+        // catalog the first time this runs against an empty project; a no-op afterwards.
+        runCatching { remote.seedIfEmpty(SampleData.allHaircuts) }
+        val remoteHaircuts = runCatching { remote.fetchAll() }.getOrNull()
         val haircuts = remoteHaircuts?.takeIf { it.isNotEmpty() } ?: SampleData.allHaircuts
         haircutDao.insertAll(haircuts.map { it.toEntity() })
     }
@@ -73,16 +75,5 @@ private fun Haircut.toEntity() = HaircutEntity(
     texture = texture.name,
     recommendedFaceShapes = recommendedFaceShapes.map { it.name },
     treatment = treatment.name,
-    description = description
-)
-
-private fun HaircutDto.toDomain() = Haircut(
-    id = id,
-    name = name,
-    imageUrl = imageUrl,
-    length = runCatching { HairLength.valueOf(length) }.getOrDefault(HairLength.MEDIUM),
-    texture = runCatching { HairTexture.valueOf(texture) }.getOrDefault(HairTexture.STRAIGHT),
-    recommendedFaceShapes = recommendedFaceShapes.mapNotNull { runCatching { FaceShape.valueOf(it) }.getOrNull() },
-    treatment = runCatching { TreatmentPreference.valueOf(treatment) }.getOrDefault(TreatmentPreference.NONE),
     description = description
 )

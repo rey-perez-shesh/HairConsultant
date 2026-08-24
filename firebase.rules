@@ -1,0 +1,58 @@
+rules_version = '2';
+
+// Firestore security rules for the HairConsultant app.
+//
+// Paste this into Firebase Console -> Firestore Database -> Rules, or deploy with the
+// Firebase CLI (`firebase deploy --only firestore:rules`) once this project has a
+// firebase.json pointing `firestore.rules` at this file.
+//
+// Collections used by the app (see AppContainer.kt):
+//  - users          one profile document per signed-in user, keyed by uid.
+//  - consultations  face-scan / image-upload history + favorites, keyed by a random id,
+//                    each document carries the owning `userId`.
+//  - feedback       star ratings + written reviews, keyed by a random id, each document
+//                    carries the owning `userId`.
+//  - haircuts       shared, curated haircut catalog. Every user can read it; it is only
+//                    ever written once per document, by HaircutRepositoryImpl's one-time
+//                    migration seed (see FirestoreHaircutRepository.seedIfEmpty) -- after
+//                    that first write, edits should go through the Firebase console, not
+//                    the app, so client updates/deletes are blocked.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    match /consultations/{consultationId} {
+      allow read, update, delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    match /feedback/{feedbackId} {
+      allow read, update, delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    match /haircuts/{haircutId} {
+      allow read: if signedIn();
+      // Create-only: lets the app's one-time catalog migration seed empty documents, but
+      // never overwrite or remove a haircut that already exists.
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    // Everything else is denied by default.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

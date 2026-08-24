@@ -10,15 +10,20 @@ import com.hairconsultant.app.data.analysis.MlKitFaceMeshVerifier
 import com.hairconsultant.app.data.analysis.StillImageFaceLandmarker
 import com.hairconsultant.app.data.analysis.StillImageHairSegmenter
 import com.hairconsultant.app.data.local.AppDatabase
-import com.hairconsultant.app.data.remote.api.NetworkModule
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
 import com.hairconsultant.app.data.remote.firebase.ConsultationRemoteRepository
+import com.hairconsultant.app.data.remote.firebase.FeedbackRemoteRepository
 import com.hairconsultant.app.data.remote.firebase.FirebaseAuthRepository
 import com.hairconsultant.app.data.remote.firebase.FirebaseMediaStorageRepository
 import com.hairconsultant.app.data.remote.firebase.FirestoreConsultationRepository
+import com.hairconsultant.app.data.remote.firebase.FirestoreFeedbackRepository
+import com.hairconsultant.app.data.remote.firebase.FirestoreHaircutRepository
 import com.hairconsultant.app.data.remote.firebase.FirestoreUserProfileRepository
+import com.hairconsultant.app.data.remote.firebase.HaircutRemoteRepository
 import com.hairconsultant.app.data.remote.firebase.MediaStorageRepository
 import com.hairconsultant.app.data.remote.firebase.UserProfileRemoteRepository
+import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
+import com.hairconsultant.app.data.remote.gemini.GeminiChatRepositoryImpl
 import com.hairconsultant.app.data.remote.gemini.GeminiImageRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiImageRepositoryImpl
 import com.hairconsultant.app.data.repository.ConsultationRepository
@@ -36,8 +41,10 @@ import com.hairconsultant.app.data.repository.UserRepositoryImpl
  * Firebase project: app/google-services.json is attached and the Google Services plugin is
  * applied, so every repository below talks to the real backend:
  *  - Auth -> [FirebaseAuthRepository] (login/register).
- *  - Firestore -> [FirestoreUserProfileRepository] (profile + preferences) and
- *    [FirestoreConsultationRepository] (consultation history + favorites).
+ *  - Firestore -> [FirestoreUserProfileRepository] (profile + preferences),
+ *    [FirestoreConsultationRepository] (consultation history + favorites),
+ *    [FirestoreFeedbackRepository] (star ratings + written reviews), and
+ *    [FirestoreHaircutRepository] (the face-shape-justified haircut catalog).
  *  - Storage -> [FirebaseMediaStorageRepository] (consultation photos + try-on results).
  *  - Realtime Database -> connected via [realtimeDatabase] only; no data model lives there yet.
  */
@@ -49,12 +56,12 @@ class AppContainer(private val appContext: Context) {
             .build()
     }
 
-    private val apiService by lazy { NetworkModule.apiService }
-
     // --- Firebase-backed repositories ---
     val authRepository: AuthRepository by lazy { FirebaseAuthRepository() }
     private val userProfileRemoteRepository: UserProfileRemoteRepository by lazy { FirestoreUserProfileRepository() }
     private val consultationRemoteRepository: ConsultationRemoteRepository by lazy { FirestoreConsultationRepository() }
+    private val feedbackRemoteRepository: FeedbackRemoteRepository by lazy { FirestoreFeedbackRepository() }
+    private val haircutRemoteRepository: HaircutRemoteRepository by lazy { FirestoreHaircutRepository() }
     val mediaStorageRepository: MediaStorageRepository by lazy { FirebaseMediaStorageRepository() }
 
     /**
@@ -65,8 +72,9 @@ class AppContainer(private val appContext: Context) {
      */
     val realtimeDatabase: FirebaseDatabase by lazy { FirebaseDatabase.getInstance() }
 
-    // --- Gemini (image-upload AR try-on generation) ---
+    // --- Gemini (image-upload AR try-on generation + the AI consultant chatbot's reasoning) ---
     val geminiImageRepository: GeminiImageRepository by lazy { GeminiImageRepositoryImpl(appContext) }
+    val geminiChatRepository: GeminiChatRepository by lazy { GeminiChatRepositoryImpl() }
 
     // --- Face + hair: MediaPipe live landmarker/hair mask + ML Kit second check ---
     // Swap LandmarkFaceAnalyzer(...) for MockFaceAnalyzer() to restore random results.
@@ -86,9 +94,9 @@ class AppContainer(private val appContext: Context) {
 
     // --- Repositories consumed by the UI layer (offline-first via Room) ---
     val userRepository: UserRepository by lazy { UserRepositoryImpl(database.userDao(), userProfileRemoteRepository) }
-    val haircutRepository: HaircutRepository by lazy { HaircutRepositoryImpl(database.haircutDao(), apiService) }
+    val haircutRepository: HaircutRepository by lazy { HaircutRepositoryImpl(database.haircutDao(), haircutRemoteRepository) }
     val consultationRepository: ConsultationRepository by lazy {
         ConsultationRepositoryImpl(database.consultationDao(), database.haircutDao(), consultationRemoteRepository)
     }
-    val feedbackRepository: FeedbackRepository by lazy { FeedbackRepositoryImpl(database.feedbackDao(), apiService) }
+    val feedbackRepository: FeedbackRepository by lazy { FeedbackRepositoryImpl(database.feedbackDao(), feedbackRemoteRepository) }
 }

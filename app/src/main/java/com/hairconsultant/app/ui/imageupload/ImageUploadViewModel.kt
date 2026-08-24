@@ -7,7 +7,9 @@ import com.hairconsultant.app.data.analysis.FaceAnalyzer
 import com.hairconsultant.app.data.analysis.NoFaceDetectedException
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
 import com.hairconsultant.app.data.remote.firebase.MediaStorageRepository
+import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiImageRepository
+import com.hairconsultant.app.data.remote.gemini.describeForChatContext
 import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.HaircutRepository
 import com.hairconsultant.app.data.repository.UserRepository
@@ -58,6 +60,7 @@ class ImageUploadViewModel(
     private val faceAnalyzer: FaceAnalyzer,
     private val haircutRepository: HaircutRepository,
     private val geminiImageRepository: GeminiImageRepository,
+    private val chatRepository: GeminiChatRepository,
     private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
     private val consultationRepository: ConsultationRepository,
@@ -109,14 +112,41 @@ class ImageUploadViewModel(
         viewModelScope.launch { chatBot.selectQuickReply(reply) }
     }
 
-    private fun handleFreeText(text: String) {
+    private suspend fun handleFreeText(text: String) {
         when (_uiState.value.stage) {
             ImageUploadStage.CONFIRM_RESULT -> onResultConfirmationReply(text)
             ImageUploadStage.ASK_FIX -> onFixReply(text)
             ImageUploadStage.ASK_LENGTH -> onLengthReply(text)
             ImageUploadStage.ASK_TEXTURE -> onTextureReply(text)
             ImageUploadStage.ASK_TREATMENT -> onTreatmentReply(text)
-            else -> chatBot.pushBotMessage("Upload a photo to get started.")
+            else -> respondFreeform(text)
+        }
+    }
+
+    /**
+     * Anything outside the guided scan/fix flow (before a photo is uploaded, or once
+     * suggestions are already shown) goes to the AI consultant instead of a canned reply, so
+     * users can ask real questions ("is rebonding safe for wavy hair?", "what's low-maintenance
+     * for the gym?") and get an answer reasoned from [com.hairconsultant.app.data.HairKnowledgeBase].
+     */
+    private suspend fun respondFreeform(text: String) {
+        val context = buildConsultationContext()
+        chatRepository.reply(chatBot.state.value.messages, text, context)
+            .onSuccess { reply -> chatBot.pushBotMessage(reply) }
+            .onFailure { error -> chatBot.pushBotMessage("I couldn't reach the AI consultant right now (${error.message}).") }
+    }
+
+    /** Everything the app already knows for certain about this consultation, for the AI consultant to reason over. */
+    private fun buildConsultationContext(candidates: List<Haircut> = _uiState.value.suggestions): String {
+        val state = _uiState.value
+        return buildString {
+            state.scanResult?.let { append("Confirmed face shape: ${it.faceShape.displayName}. ") }
+            (state.desiredLength ?: state.scanResult?.hairLength)?.let { append("Hair length: ${it.displayName}. ") }
+            (state.desiredTexture ?: state.scanResult?.hairTexture)?.let { append("Hair texture: ${it.displayName}. ") }
+            state.desiredTreatment?.takeIf { it != TreatmentPreference.NONE }
+                ?.let { append("Planned treatment: ${it.displayName}. ") }
+            append("\nCandidate haircuts:\n")
+            append(candidates.describeForChatContext())
         }
     }
 
@@ -287,11 +317,15 @@ class ImageUploadViewModel(
                 haircutRepository.observeClusters().first().flatMap { it.haircuts }
             }.take(6)
             _uiState.update { it.copy(suggestions = suggestions) }
-            chatBot.pushBotMessage(
+            val intro = chatRepository.reply(
+                chatBot.state.value.messages,
+                "The user has no hair to style right now (bald). Recommend wigs from the candidates and explain why each fits their face shape.",
+                buildConsultationContext(suggestions)
+            ).getOrElse {
                 "Since you don't have hair to style, you can try a wig. " +
-                    "Here are looks that fit your ${result.faceShape.displayName} face — pick one and I'll generate a preview.",
-                haircutOptions = suggestions
-            )
+                    "Here are looks that fit your ${result.faceShape.displayName} face — pick one and I'll generate a preview."
+            }
+            chatBot.pushBotMessage(intro, haircutOptions = suggestions)
             persistConsultation(selectedHaircut = null)
             persistPreferences()
         }
@@ -354,11 +388,16 @@ class ImageUploadViewModel(
             val matches = haircutRepository.observeMatching(result.faceShape, length, texture).first()
             val suggestions = matches.ifEmpty { haircutRepository.observeClusters().first().flatMap { it.haircuts }.take(6) }
             _uiState.update { it.copy(suggestions = suggestions) }
-            chatBot.pushBotMessage(
+            val intro = chatRepository.reply(
+                chatBot.state.value.messages,
+                "The user just confirmed their face shape, hair length/texture, and treatment plans. " +
+                    "Recommend hairstyles from the candidates now and explain why each one fits.",
+                buildConsultationContext(suggestions)
+            ).getOrElse {
                 "Here are cuts that fit your ${result.faceShape.displayName} face shape. " +
-                    "Pick one and I'll generate a preview on your photo.",
-                haircutOptions = suggestions
-            )
+                    "Pick one and I'll generate a preview on your photo."
+            }
+            chatBot.pushBotMessage(intro, haircutOptions = suggestions)
             persistConsultation(selectedHaircut = null)
             persistPreferences()
         }

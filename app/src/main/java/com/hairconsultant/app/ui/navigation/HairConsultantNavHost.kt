@@ -82,7 +82,7 @@ fun HairConsultantNavHost(container: AppContainer) {
             }
             composable(Screen.Home.route) {
                 val viewModel: HomeViewModel = viewModel(factory = ViewModelFactory(container) { c ->
-                    HomeViewModel(c.haircutRepository)
+                    HomeViewModel(c.haircutRepository, c.geminiChatRepository)
                 })
                 HomeScreen(viewModel = viewModel)
             }
@@ -92,6 +92,7 @@ fun HairConsultantNavHost(container: AppContainer) {
                         c.faceAnalyzer,
                         c.haircutRepository,
                         c.faceLandmarkStore,
+                        c.geminiChatRepository,
                         c.authRepository,
                         c.userRepository,
                         c.consultationRepository
@@ -105,6 +106,7 @@ fun HairConsultantNavHost(container: AppContainer) {
                         c.faceAnalyzer,
                         c.haircutRepository,
                         c.geminiImageRepository,
+                        c.geminiChatRepository,
                         c.authRepository,
                         c.userRepository,
                         c.consultationRepository,

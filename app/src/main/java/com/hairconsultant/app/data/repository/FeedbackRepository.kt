@@ -2,8 +2,7 @@ package com.hairconsultant.app.data.repository
 
 import com.hairconsultant.app.data.local.dao.FeedbackDao
 import com.hairconsultant.app.data.local.entity.FeedbackEntity
-import com.hairconsultant.app.data.remote.api.ApiService
-import com.hairconsultant.app.data.remote.api.dto.FeedbackDto
+import com.hairconsultant.app.data.remote.firebase.FeedbackRemoteRepository
 import com.hairconsultant.app.domain.model.FeedbackReport
 import java.util.UUID
 
@@ -12,9 +11,10 @@ interface FeedbackRepository {
     suspend fun syncPending()
 }
 
+/** Offline-first: every rating/review is queued in Room first, then pushed to Firestore. */
 class FeedbackRepositoryImpl(
     private val feedbackDao: FeedbackDao,
-    private val apiService: ApiService
+    private val remote: FeedbackRemoteRepository
 ) : FeedbackRepository {
 
     override suspend fun submit(userId: String, rating: Int, comment: String) {
@@ -41,8 +41,9 @@ class FeedbackRepositoryImpl(
     override suspend fun syncPending() {
         feedbackDao.getUnsynced().forEach { pending ->
             val synced = runCatching {
-                apiService.submitFeedback(
-                    FeedbackDto(
+                remote.submit(
+                    FeedbackReport(
+                        id = pending.id,
                         userId = pending.userId,
                         rating = pending.rating,
                         comment = pending.comment,
