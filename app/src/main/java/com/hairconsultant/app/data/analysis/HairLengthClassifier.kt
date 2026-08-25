@@ -7,7 +7,9 @@ data class HairMask(
     val labels: ByteArray,
     val width: Int,
     val height: Int,
-    val hairClass: Int = HairLengthClassifier.HAIR_CLASS
+    val hairClass: Int = HairLengthClassifier.HAIR_CLASS,
+    /** Optional float confidence [0,1] for hair (same length as [labels]). */
+    val confidence: FloatArray? = null
 ) {
     val pixelCount: Int get() = width * height
 

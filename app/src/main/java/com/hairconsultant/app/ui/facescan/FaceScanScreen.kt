@@ -23,6 +23,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -44,6 +45,7 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
+    val faceArAttachment = remember { FaceArSceneAttachment() }
 
     LaunchedEffect(Unit) {
         if (!cameraPermissionState.status.isGranted) {
@@ -55,9 +57,20 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
         if (cameraPermissionState.status.isGranted) {
             CameraPreview(
                 landmarkStore = viewModel.landmarkStore,
+                hairRemovalEnabled = false,
+                suppressOverlayDrawing = uiState.triedOnHaircut != null,
+                faceArAttachment = faceArAttachment,
                 modifier = Modifier.fillMaxSize()
             )
-            uiState.triedOnHaircut?.let { haircut -> ArTryOnOverlay(haircut) }
+            // Warm the Meshy GLB in the background once suggestions exist (before tap).
+            WigWarmupHost(enabled = uiState.suggestions.isNotEmpty())
+            uiState.triedOnHaircut?.let { haircut ->
+                ArTryOnOverlay(
+                    haircut = haircut,
+                    landmarkStore = viewModel.landmarkStore,
+                    faceArAttachment = faceArAttachment
+                )
+            }
         } else {
             Column(
                 modifier = Modifier

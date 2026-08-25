@@ -331,6 +331,7 @@ class FaceScanViewModel(
     }
 
     fun onHaircutTryOn(haircut: Haircut) {
+        chatBot.setOpen(false)
         _uiState.update { it.copy(triedOnHaircut = haircut) }
     }
 

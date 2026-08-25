@@ -141,6 +141,9 @@ dependencies {
     // Runtime permissions (camera)
     implementation(libs.accompanist.permissions)
 
+    // Face AR try-on (Filament / SceneView GLB overlay)
+    implementation(libs.sceneview)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -12,19 +12,25 @@ import android.view.View
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.hairconsultant.app.data.analysis.FaceOverlayFrame
 import com.hairconsultant.app.data.analysis.HairMask
+import com.hairconsultant.app.data.analysis.HairMaskRefiner
+import com.hairconsultant.app.data.analysis.HairRemover
 import com.hairconsultant.app.domain.model.HairLength
 import kotlin.math.max
 
-/** Draws the MediaPipe face mesh, hair mask, and a dashed oval so the user can line up for a real scan. */
+/** Draws the MediaPipe face mesh, hair mask / hair blur, and a dashed oval guide. */
 class FaceLandmarkOverlayView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
     private var frame: FaceOverlayFrame = FaceOverlayFrame.idle()
+    private var hairRemovalEnabled: Boolean = false
+    private var blurSource: Bitmap? = null
     private val ovalBounds = RectF()
     private val hairDst = RectF()
     private var hairBitmap: Bitmap? = null
+    private var coverFrameCounter: Int = 0
+    private var cachedScalpColor: Int = Color.rgb(205, 170, 145)
 
     private val meshPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#7EE0C6")
@@ -56,14 +62,57 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
         setShadowLayer(6f, 0f, 2f, Color.BLACK)
     }
 
+    fun setHairRemovalEnabled(enabled: Boolean) {
+        if (hairRemovalEnabled == enabled) return
+        hairRemovalEnabled = enabled
+        rebuildHairBitmap()
+        invalidate()
+    }
+
+    fun setBlurSource(bitmap: Bitmap?) {
+        blurSource = bitmap
+        if (hairRemovalEnabled) {
+            rebuildHairBitmap()
+            invalidate()
+        }
+    }
+
     fun setFrame(frame: FaceOverlayFrame) {
         this.frame = frame
+        if (hairRemovalEnabled) {
+            coverFrameCounter++
+            // Cover rebuild is cheaper than blur but still skip most frames.
+            if (coverFrameCounter % 3 == 0 || hairBitmap == null) {
+                rebuildHairBitmap()
+            }
+        } else {
+            rebuildHairBitmap()
+        }
+        invalidate()
+    }
+
+    private fun rebuildHairBitmap() {
         val previous = hairBitmap
-        hairBitmap = frame.hairMask?.toOverlayBitmap()
+        val mask = frame.hairMask
+        val source = blurSource
+        hairBitmap = when {
+            mask == null -> null
+            hairRemovalEnabled -> {
+                val points = if (frame.faceDetected) frame.points else emptyList()
+                val soft = HairMaskRefiner.refineForTryOn(mask, points)
+                if (source != null && !source.isRecycled) {
+                    if (coverFrameCounter % 15 == 0 || coverFrameCounter <= 3) {
+                        cachedScalpColor = HairRemover.estimateScalpColor(source, mask)
+                    }
+                }
+                HairRemover.tryOnSoftCover(soft, cachedScalpColor)
+            }
+            frame.estimatedHairLength == HairLength.BALD -> null
+            else -> mask.toOverlayBitmap()
+        }
         if (previous != null && previous !== hairBitmap && !previous.isRecycled) {
             previous.recycle()
         }
-        invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -81,20 +130,20 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
         val offsetX = (width - frame.imageWidth * scale) / 2f
         val offsetY = (height - frame.imageHeight * scale) / 2f
         hairBitmap?.let { overlay ->
-            if (frame.estimatedHairLength != HairLength.BALD) {
-                hairDst.set(
-                    offsetX,
-                    offsetY,
-                    offsetX + frame.imageWidth * scale,
-                    offsetY + frame.imageHeight * scale
-                )
-                canvas.drawBitmap(overlay, null, hairDst, hairPaint)
-            }
+            hairDst.set(
+                offsetX,
+                offsetY,
+                offsetX + frame.imageWidth * scale,
+                offsetY + frame.imageHeight * scale
+            )
+            canvas.drawBitmap(overlay, null, hairDst, hairPaint)
         }
 
-        canvas.drawOval(ovalBounds, if (frame.faceDetected) foundGuidePaint else guidePaint)
+        if (!hairRemovalEnabled) {
+            canvas.drawOval(ovalBounds, if (frame.faceDetected) foundGuidePaint else guidePaint)
+        }
 
-        if (frame.faceDetected && frame.points.isNotEmpty()) {
+        if (!hairRemovalEnabled && frame.faceDetected && frame.points.isNotEmpty()) {
             FaceLandmarker.FACE_LANDMARKS_CONNECTORS.filterNotNull().forEach { connector ->
                 val start = frame.points.getOrNull(connector.start()) ?: return@forEach
                 val end = frame.points.getOrNull(connector.end()) ?: return@forEach
@@ -115,7 +164,14 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
             }
         }
 
-        canvas.drawText(frame.statusMessage, width / 2f, ovalBounds.bottom + 56f, textPaint)
+        val status = when {
+            hairRemovalEnabled && frame.faceDetected ->
+                "Hair covered — Face AR try-on"
+            hairRemovalEnabled ->
+                "Align face for wig try-on"
+            else -> frame.statusMessage
+        }
+        canvas.drawText(status, width / 2f, ovalBounds.bottom + 56f, textPaint)
     }
 }
 

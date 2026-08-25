@@ -12,10 +12,12 @@ import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenter
 import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenterResult
+import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Live-camera hair mask via MediaPipe Hair Segmenter (class 0 = background, 1 = hair).
+ * Live-camera hair mask via MediaPipe Hair Segmenter (on-device `hair_segmenter.tflite`).
+ * Class 0 = background, 1 = hair. Confidence masks enable soft-edge replacement.
  * Runs independently of the face landmarker so a slow mask frame does not drop the mesh.
  */
 class LiveHairSegmenter(
@@ -55,7 +57,7 @@ class LiveHairSegmenter(
         )
         .setRunningMode(RunningMode.LIVE_STREAM)
         .setOutputCategoryMask(true)
-        .setOutputConfidenceMasks(false)
+        .setOutputConfidenceMasks(true)
         .setResultListener(::onResult)
         .setErrorListener { error ->
             busy.set(false)
@@ -96,7 +98,7 @@ class StillImageHairSegmenter(context: Context) : AutoCloseable {
             )
             .setRunningMode(RunningMode.IMAGE)
             .setOutputCategoryMask(true)
-            .setOutputConfidenceMasks(false)
+            .setOutputConfidenceMasks(true)
             .build()
         ImageSegmenter.createFromOptions(context, options)
     }.onFailure { error ->
@@ -128,5 +130,30 @@ private fun ImageSegmenterResult.toHairMask(hairClass: Int): HairMask? {
     val bytes = ByteArray(buffer.remaining())
     buffer.get(bytes)
     if (bytes.isEmpty() || image.width <= 0 || image.height <= 0) return null
-    return HairMask(bytes, image.width, image.height, hairClass)
+
+    val confidence = extractHairConfidence(hairClass, image.width, image.height)
+    return HairMask(bytes, image.width, image.height, hairClass, confidence)
+}
+
+private fun ImageSegmenterResult.extractHairConfidence(
+    hairClass: Int,
+    width: Int,
+    height: Int
+): FloatArray? {
+    val masks = confidenceMasks().orElse(null) ?: return null
+    if (masks.isEmpty()) return null
+    val hairImage = when {
+        hairClass in masks.indices -> masks[hairClass]
+        masks.size > 1 -> masks[1]
+        else -> masks[0]
+    }
+    return runCatching {
+        val buf = ByteBufferExtractor.extract(hairImage)
+        buf.order(ByteOrder.nativeOrder())
+        buf.rewind()
+        val floatBuf = buf.asFloatBuffer()
+        val expected = width * height
+        if (floatBuf.remaining() < expected) return@runCatching null
+        FloatArray(expected).also { floatBuf.get(it) }
+    }.getOrNull()
 }

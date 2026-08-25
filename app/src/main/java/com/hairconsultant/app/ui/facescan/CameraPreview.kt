@@ -1,5 +1,6 @@
 package com.hairconsultant.app.ui.facescan
 
+import android.view.View
 import android.widget.FrameLayout
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -22,10 +23,17 @@ import com.hairconsultant.app.data.analysis.LiveFaceLandmarker
 import com.hairconsultant.app.data.analysis.LiveHairSegmenter
 import java.util.concurrent.Executors
 
-/** Full-screen live front-camera feed with MediaPipe face mesh + hair mask overlay. */
+/**
+ * Full-screen live front-camera feed with MediaPipe face mesh + hair mask.
+ *
+ * Try-on stack: PreviewView (normal camera) → SceneView (GLB via [FaceArSceneAttachment]).
+ */
 @Composable
 fun CameraPreview(
     landmarkStore: FaceLandmarkStore,
+    hairRemovalEnabled: Boolean = false,
+    suppressOverlayDrawing: Boolean = false,
+    faceArAttachment: FaceArSceneAttachment? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -37,13 +45,14 @@ fun CameraPreview(
         LiveFaceLandmarker(context.applicationContext, landmarkStore, hairSegmenter)
     }
 
-    DisposableEffect(lifecycleOwner, landmarker, hairSegmenter) {
+    DisposableEffect(lifecycleOwner, landmarker, hairSegmenter, faceArAttachment) {
         onDispose {
             runCatching { ProcessCameraProvider.getInstance(context).get().unbindAll() }
             landmarker.close()
             hairSegmenter.close()
             analysisExecutor.shutdown()
             landmarkStore.publishEmpty()
+            faceArAttachment?.setSceneView(null)
         }
     }
 
@@ -51,6 +60,10 @@ fun CameraPreview(
         modifier = modifier.fillMaxSize(),
         factory = { ctx ->
             val previewView = PreviewView(ctx).apply {
+                // PERFORMANCE = internal SurfaceView. Required so SceneView (also SurfaceView)
+                // can composite transparently on top. COMPATIBLE/TextureView underneath always
+                // shows black in the transparent pixels of an overlay SurfaceView.
+                implementationMode = PreviewView.ImplementationMode.PERFORMANCE
                 scaleType = PreviewView.ScaleType.FILL_CENTER
                 layoutParams = FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
@@ -67,6 +80,7 @@ fun CameraPreview(
                 addView(previewView)
                 addView(overlayView)
             }
+            faceArAttachment?.bindFrameLayout(root)
             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
             cameraProviderFuture.addListener(
                 {
@@ -101,7 +115,23 @@ fun CameraPreview(
             root
         },
         update = { root ->
-            (root.getChildAt(1) as? FaceLandmarkOverlayView)?.setFrame(overlayFrame)
+            faceArAttachment?.bindFrameLayout(root)
+            faceArAttachment?.sceneView?.let { sv ->
+                if (sv.parent === root) {
+                    root.bringChildToFront(sv)
+                }
+            }
+            val overlayView = (0 until root.childCount).firstNotNullOfOrNull { i ->
+                root.getChildAt(i) as? FaceLandmarkOverlayView
+            }
+            overlayView?.apply {
+                visibility = if (suppressOverlayDrawing) View.GONE else View.VISIBLE
+                if (!suppressOverlayDrawing) {
+                    setBlurSource(landmarkStore.peekPreviewBitmap())
+                    setHairRemovalEnabled(hairRemovalEnabled)
+                    setFrame(overlayFrame)
+                }
+            }
         }
     )
 }

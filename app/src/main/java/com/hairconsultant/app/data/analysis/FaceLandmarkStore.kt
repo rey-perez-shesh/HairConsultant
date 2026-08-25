@@ -46,6 +46,7 @@ class FaceLandmarkStore {
 
     private var latestPoints: List<LandmarkPoint>? = null
     private var latestBitmap: Bitmap? = null
+    private var previewBitmap: Bitmap? = null
     private var latestWidth: Int = 0
     private var latestHeight: Int = 0
     private var latestAtElapsed: Long = 0L
@@ -58,12 +59,24 @@ class FaceLandmarkStore {
             if (bitmap != null && bitmap !== latestBitmap) {
                 latestBitmap?.recycle()
                 latestBitmap = bitmap
+                previewBitmap?.recycle()
+                previewBitmap = downscaleForBlur(bitmap)
             }
             latestWidth = width
             latestHeight = height
             latestAtElapsed = SystemClock.elapsedRealtime()
         }
         emitOverlay()
+    }
+
+    /** Downscaled camera frame for live hair blur (caller must not recycle). */
+    fun peekPreviewBitmap(): Bitmap? = synchronized(lock) {
+        previewBitmap?.takeUnless { it.isRecycled }
+    }
+
+    /** Latest analysis frame for face punch-through occlusion (caller must not recycle). */
+    fun peekLatestBitmap(): Bitmap? = synchronized(lock) {
+        latestBitmap?.takeUnless { it.isRecycled }
     }
 
     fun publishHair(mask: HairMask?) {
@@ -80,6 +93,8 @@ class FaceLandmarkStore {
             latestAtElapsed = 0L
             latestHair = null
             latestHairAtElapsed = 0L
+            previewBitmap?.recycle()
+            previewBitmap = null
         }
         _overlay.value = FaceOverlayFrame.idle(message)
     }
@@ -135,5 +150,15 @@ class FaceLandmarkStore {
             hairMask = hair,
             estimatedHairLength = hairLength
         )
+    }
+
+    private fun downscaleForBlur(src: Bitmap): Bitmap? {
+        if (src.isRecycled) return null
+        val maxW = 240
+        if (src.width <= maxW) {
+            return src.copy(src.config ?: Bitmap.Config.ARGB_8888, false)
+        }
+        val h = (src.height * maxW / src.width.toFloat()).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(src, maxW, h, true)
     }
 }
