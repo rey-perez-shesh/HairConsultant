@@ -95,7 +95,7 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
                 onClick = viewModel::rescan,
                 icon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
                 text = { Text("Rescan") },
-                modifier = Modifier.align(Alignment.TopStart).padding(20.dp)
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
             )
         }
 

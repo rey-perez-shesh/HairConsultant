@@ -15,13 +15,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
-/** Modern 1-10 satisfaction rating rendered as ten tappable stars. */
+/** Modern 1-5 satisfaction rating rendered as five tappable stars. */
 @Composable
 fun StarRatingBar(
     rating: Int,
     onRatingChanged: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    maxStars: Int = 10
+    maxStars: Int = 5
 ) {
     Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         for (star in 1..maxStars) {

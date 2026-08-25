@@ -23,7 +23,7 @@ data class ChatMessage(
     val timestampEpochMillis: Long = 0L
 )
 
-/** 1-10 satisfaction rating plus optional free-form feedback, sent to the backend for analytics. */
+/** 1-5 satisfaction rating plus optional free-form feedback, sent to the backend for analytics. */
 data class FeedbackReport(
     val id: String,
     val userId: String,

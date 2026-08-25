@@ -53,11 +53,12 @@ class HomeViewModel(
         }
     }
 
+    /** Tapping a catalog card (or a chat-suggested style) opens the live camera AR try-on for it. */
     fun onHaircutSelected(haircut: Haircut) {
         _uiState.update { it.copy(selectedHaircut = haircut) }
     }
 
-    fun dismissHaircutDetail() {
+    fun closeCameraTryOn() {
         _uiState.update { it.copy(selectedHaircut = null) }
     }
 
