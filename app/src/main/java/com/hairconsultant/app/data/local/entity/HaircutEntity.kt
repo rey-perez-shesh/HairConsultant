@@ -15,6 +15,7 @@ data class HaircutEntity(
     val length: String,
     val texture: String,
     val recommendedFaceShapes: List<String>,
+    val genderStyle: String,
     val treatment: String,
     val description: String
 )

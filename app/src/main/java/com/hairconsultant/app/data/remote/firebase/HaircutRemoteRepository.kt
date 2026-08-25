@@ -5,6 +5,7 @@ import com.hairconsultant.app.domain.model.FaceShape
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
+import com.hairconsultant.app.domain.model.HaircutGenderStyle
 import com.hairconsultant.app.domain.model.TreatmentPreference
 import kotlinx.coroutines.tasks.await
 
@@ -39,6 +40,8 @@ class FirestoreHaircutRepository(
                 recommendedFaceShapes = (doc.get("recommendedFaceShapes") as? List<*>)
                     ?.mapNotNull { shape -> (shape as? String)?.let { runCatching { FaceShape.valueOf(it) }.getOrNull() } }
                     .orEmpty(),
+                genderStyle = doc.getString("genderStyle")
+                    ?.let { runCatching { HaircutGenderStyle.valueOf(it) }.getOrNull() } ?: HaircutGenderStyle.UNISEX,
                 treatment = doc.getString("treatment")
                     ?.let { runCatching { TreatmentPreference.valueOf(it) }.getOrNull() } ?: TreatmentPreference.NONE,
                 description = doc.getString("description").orEmpty()
@@ -59,6 +62,7 @@ class FirestoreHaircutRepository(
                     "length" to haircut.length.name,
                     "texture" to haircut.texture.name,
                     "recommendedFaceShapes" to haircut.recommendedFaceShapes.map { it.name },
+                    "genderStyle" to haircut.genderStyle.name,
                     "treatment" to haircut.treatment.name,
                     "description" to haircut.description
                 )
