@@ -3,6 +3,7 @@ package com.hairconsultant.app.ui.navigation
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -82,8 +83,9 @@ fun HairConsultantNavHost(container: AppContainer) {
             }
             composable(Screen.Home.route) {
                 val viewModel: HomeViewModel = viewModel(factory = ViewModelFactory(container) { c ->
-                    HomeViewModel(c.haircutRepository, c.geminiChatRepository)
+                    HomeViewModel(c.haircutRepository, c.geminiChatRepository, c.chatBotController)
                 })
+                LaunchedEffect(Unit) { viewModel.activateChat() }
                 HomeScreen(viewModel = viewModel)
             }
             composable(Screen.FaceScan.route) {
@@ -93,11 +95,13 @@ fun HairConsultantNavHost(container: AppContainer) {
                         c.haircutRepository,
                         c.faceLandmarkStore,
                         c.geminiChatRepository,
+                        c.chatBotController,
                         c.authRepository,
                         c.userRepository,
                         c.consultationRepository
                     )
                 })
+                LaunchedEffect(Unit) { viewModel.activateChat() }
                 FaceScanScreen(viewModel = viewModel)
             }
             composable(Screen.ImageUpload.route) {
@@ -107,12 +111,14 @@ fun HairConsultantNavHost(container: AppContainer) {
                         c.haircutRepository,
                         c.geminiImageRepository,
                         c.geminiChatRepository,
+                        c.chatBotController,
                         c.authRepository,
                         c.userRepository,
                         c.consultationRepository,
                         c.mediaStorageRepository
                     )
                 })
+                LaunchedEffect(Unit) { viewModel.activateChat() }
                 ImageUploadScreen(viewModel = viewModel)
             }
             composable(Screen.Profile.route) {

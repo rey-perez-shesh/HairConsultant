@@ -24,16 +24,21 @@ data class HomeUiState(
 
 class HomeViewModel(
     private val haircutRepository: HaircutRepository,
-    private val chatRepository: GeminiChatRepository
+    private val chatRepository: GeminiChatRepository,
+    val chatBot: ChatBotController
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState
 
-    val chatBot = ChatBotController(onUserMessage = { text -> respondToChat(text) })
     val chatState: StateFlow<ChatBotUiState> = chatBot.state.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5000), ChatBotUiState()
     )
+
+    /** Claims the shared chatbot's next reply whenever Home becomes the active screen. */
+    fun activateChat() {
+        chatBot.setHandler { text -> respondToChat(text) }
+    }
 
     init {
         viewModelScope.launch {

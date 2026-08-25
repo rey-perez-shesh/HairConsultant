@@ -15,11 +15,15 @@ data class ChatBotUiState(
 )
 
 /**
- * Drives the floating AI-chatbot bottom sheet that follows the user on Home, Face Scan and
- * Image Upload. Each screen owns its own instance so the conversation can reference that
- * screen's scan/upload context (e.g. suggested haircuts once a face has been analyzed).
+ * Drives the single floating AI-chatbot bottom sheet shared across Home, Face Scan and Image
+ * Upload (one instance, owned by [com.hairconsultant.app.di.AppContainer], injected into every
+ * screen's ViewModel) so it's the same ongoing conversation no matter which tab it's opened
+ * from. Each screen's ViewModel calls [setHandler] when it becomes active so its own free-text
+ * logic (which can reference that screen's scan/upload context) handles the next reply.
  */
-class ChatBotController(private val onUserMessage: suspend (String) -> Unit = {}) {
+class ChatBotController {
+
+    private var onUserMessage: suspend (String) -> Unit = {}
 
     private val _state = MutableStateFlow(
         ChatBotUiState(
@@ -29,6 +33,10 @@ class ChatBotController(private val onUserMessage: suspend (String) -> Unit = {}
         )
     )
     val state: StateFlow<ChatBotUiState> = _state
+
+    fun setHandler(handler: suspend (String) -> Unit) {
+        onUserMessage = handler
+    }
 
     fun setOpen(open: Boolean) {
         _state.update { it.copy(isOpen = open) }

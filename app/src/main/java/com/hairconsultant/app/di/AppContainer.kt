@@ -34,6 +34,7 @@ import com.hairconsultant.app.data.repository.HaircutRepository
 import com.hairconsultant.app.data.repository.HaircutRepositoryImpl
 import com.hairconsultant.app.data.repository.UserRepository
 import com.hairconsultant.app.data.repository.UserRepositoryImpl
+import com.hairconsultant.app.ui.chatbot.ChatBotController
 
 /**
  * Lightweight manual service locator (no Hilt) so the dependency graph stays easy to read.
@@ -75,6 +76,13 @@ class AppContainer(private val appContext: Context) {
     // --- Gemini (image-upload AR try-on generation + the AI consultant chatbot's reasoning) ---
     val geminiImageRepository: GeminiImageRepository by lazy { GeminiImageRepositoryImpl(appContext) }
     val geminiChatRepository: GeminiChatRepository by lazy { GeminiChatRepositoryImpl() }
+
+    /**
+     * One shared chatbot conversation for the whole app (Home, Face Scan, Image Upload all use
+     * this same instance) so switching tabs never starts a new conversation. Each screen's
+     * ViewModel calls [ChatBotController.setHandler] when it becomes active.
+     */
+    val chatBotController: ChatBotController by lazy { ChatBotController() }
 
     // --- Face + hair: MediaPipe live landmarker/hair mask + ML Kit second check ---
     // Swap LandmarkFaceAnalyzer(...) for MockFaceAnalyzer() to restore random results.
