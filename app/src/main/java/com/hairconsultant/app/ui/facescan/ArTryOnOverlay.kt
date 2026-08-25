@@ -448,9 +448,9 @@ private fun applyHeadPose(
 }
 
 private fun estimateHeadWidth(landmarks: List<LandmarkPoint>, faceWidth: Float): Float {
-    val foreheadWidth = if (landmarks.size > FaceShapeClassifier.RIGHT_FOREHEAD) {
-        (landmarks[FaceShapeClassifier.RIGHT_FOREHEAD].x -
-            landmarks[FaceShapeClassifier.LEFT_FOREHEAD].x).coerceIn(0.08f, 0.72f)
+    val foreheadWidth = if (landmarks.size > FaceShapeClassifier.RIGHT_TEMPLE) {
+        (landmarks[FaceShapeClassifier.RIGHT_TEMPLE].x -
+            landmarks[FaceShapeClassifier.LEFT_TEMPLE].x).coerceIn(0.08f, 0.72f)
     } else {
         faceWidth
     }
