@@ -156,16 +156,16 @@ object HairAppearanceClassifier {
         val density = hairPixelCount / ((maxX - minX + 1) * (maxY - minY + 1).toFloat()).coerceAtLeast(1f)
 
         val texture = when {
-            avgChanges < 2.5f && avgEdge < 14f -> HairTexture.STRAIGHT
-            avgChanges < 6f && avgEdge < 24f -> HairTexture.WAVY
-            avgChanges < 11f || density > 0.55f -> HairTexture.CURLY
+            avgChanges < 8f && avgEdge < 22f -> HairTexture.STRAIGHT
+            avgChanges < 16f && avgEdge < 40f -> HairTexture.WAVY
+            avgChanges < 28f || density > 0.60f -> HairTexture.CURLY
             else -> HairTexture.COILY
         }
         val confidence = when (texture) {
-            HairTexture.STRAIGHT -> (0.55f + (2.5f - avgChanges).coerceAtLeast(0f) * 0.05f)
+            HairTexture.STRAIGHT -> (0.55f + (8f - avgChanges).coerceAtLeast(0f) * 0.02f)
             HairTexture.WAVY -> 0.58f
-            HairTexture.CURLY -> (0.55f + (avgChanges - 6f).coerceAtLeast(0f) * 0.02f)
-            HairTexture.COILY -> (0.55f + (avgChanges - 11f).coerceAtLeast(0f) * 0.02f)
+            HairTexture.CURLY -> (0.55f + (avgChanges - 16f).coerceAtLeast(0f) * 0.01f)
+            HairTexture.COILY -> (0.55f + (avgChanges - 28f).coerceAtLeast(0f) * 0.01f)
         }.coerceIn(0.45f, 0.78f)
         return texture to confidence
     }

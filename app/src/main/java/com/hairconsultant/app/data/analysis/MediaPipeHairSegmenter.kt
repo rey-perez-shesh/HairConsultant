@@ -15,10 +15,11 @@ import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenterResult
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Live-camera hair mask via MediaPipe Hair Segmenter (class 0 = background, 1 = hair). Runs
- * independently of the face landmarker so a slow mask frame does not drop the mesh, and is
- * decoupled from [FaceLandmarkStore] so it can also drive a standalone hair-swap preview (e.g.
- * [com.hairconsultant.app.ui.home.HairSwapCameraPreview]) that has no face-mesh scan involved.
+ * Live-camera hair mask via MediaPipe Hair Segmenter (class 0 = background, 1 = hair).
+ * Confidence masks enable soft-edge replacement. Runs independently of the face landmarker
+ * so a slow mask frame does not drop the mesh, and is decoupled from [FaceLandmarkStore] so
+ * it can also drive a standalone hair-swap preview (e.g.
+ * [com.hairconsultant.app.ui.home.HairSwapCameraPreview]).
  */
 class LiveHairSegmenter(
     context: Context,
@@ -93,7 +94,7 @@ class StillImageHairSegmenter(context: Context) : AutoCloseable {
             )
             .setRunningMode(RunningMode.IMAGE)
             .setOutputCategoryMask(true)
-            .setOutputConfidenceMasks(false)
+            .setOutputConfidenceMasks(true)
             .build()
         ImageSegmenter.createFromOptions(context, options)
     }.onFailure { error ->
