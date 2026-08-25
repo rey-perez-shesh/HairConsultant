@@ -24,6 +24,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.hairconsultant.app.ui.chatbot.ChatBotSheet
 import com.hairconsultant.app.ui.components.ChatFab
 import com.hairconsultant.app.ui.components.ClusterRow
+import com.hairconsultant.app.ui.components.HaircutDetailDialog
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,6 +84,14 @@ fun HomeScreen(viewModel: HomeViewModel) {
     }
 
     uiState.selectedHaircut?.let { haircut ->
+        HaircutDetailDialog(
+            haircut = haircut,
+            onDismiss = viewModel::dismissHaircutDetail,
+            onTryOn = { viewModel.onTryOnClicked(haircut) }
+        )
+    }
+
+    uiState.cameraTryOnHaircut?.let { haircut ->
         Dialog(
             onDismissRequest = viewModel::closeCameraTryOn,
             properties = DialogProperties(usePlatformDefaultWidth = false)

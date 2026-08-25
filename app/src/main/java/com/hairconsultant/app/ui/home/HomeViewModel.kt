@@ -19,7 +19,8 @@ import kotlinx.coroutines.launch
 data class HomeUiState(
     val clusters: List<HaircutCluster> = emptyList(),
     val isLoading: Boolean = true,
-    val selectedHaircut: Haircut? = null
+    val selectedHaircut: Haircut? = null,
+    val cameraTryOnHaircut: Haircut? = null
 )
 
 class HomeViewModel(
@@ -53,13 +54,22 @@ class HomeViewModel(
         }
     }
 
-    /** Tapping a catalog card (or a chat-suggested style) opens the live camera AR try-on for it. */
+    /** Tapping a catalog card (or a chat-suggested style) shows a quick-look preview first. */
     fun onHaircutSelected(haircut: Haircut) {
         _uiState.update { it.copy(selectedHaircut = haircut) }
     }
 
-    fun closeCameraTryOn() {
+    fun dismissHaircutDetail() {
         _uiState.update { it.copy(selectedHaircut = null) }
+    }
+
+    /** The preview's "Try It On" button: closes the preview and opens the live camera filter. */
+    fun onTryOnClicked(haircut: Haircut) {
+        _uiState.update { it.copy(selectedHaircut = null, cameraTryOnHaircut = haircut) }
+    }
+
+    fun closeCameraTryOn() {
+        _uiState.update { it.copy(cameraTryOnHaircut = null) }
     }
 
     /** Routes free-form chat through the AI consultant, grounded on whatever catalog entries match. */
