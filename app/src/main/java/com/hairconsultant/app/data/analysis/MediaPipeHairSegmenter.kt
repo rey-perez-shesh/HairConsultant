@@ -15,12 +15,14 @@ import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenterResult
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Live-camera hair mask via MediaPipe Hair Segmenter (class 0 = background, 1 = hair).
- * Runs independently of the face landmarker so a slow mask frame does not drop the mesh.
+ * Live-camera hair mask via MediaPipe Hair Segmenter (class 0 = background, 1 = hair). Runs
+ * independently of the face landmarker so a slow mask frame does not drop the mesh, and is
+ * decoupled from [FaceLandmarkStore] so it can also drive a standalone hair-swap preview (e.g.
+ * [com.hairconsultant.app.ui.home.HairSwapCameraPreview]) that has no face-mesh scan involved.
  */
 class LiveHairSegmenter(
     context: Context,
-    private val store: FaceLandmarkStore
+    private val onMask: (HairMask?) -> Unit
 ) : AutoCloseable {
 
     private val busy = AtomicBoolean(false)
@@ -55,7 +57,7 @@ class LiveHairSegmenter(
         )
         .setRunningMode(RunningMode.LIVE_STREAM)
         .setOutputCategoryMask(true)
-        .setOutputConfidenceMasks(false)
+        .setOutputConfidenceMasks(true)
         .setResultListener(::onResult)
         .setErrorListener { error ->
             busy.set(false)
@@ -65,12 +67,7 @@ class LiveHairSegmenter(
 
     private fun onResult(result: ImageSegmenterResult, input: MPImage) {
         busy.set(false)
-        val mask = result.toHairMask(hairClass)
-        if (mask == null) {
-            store.publishHair(null)
-            return
-        }
-        store.publishHair(mask)
+        onMask(result.toHairMask(hairClass))
     }
 
     override fun close() {
@@ -128,5 +125,16 @@ private fun ImageSegmenterResult.toHairMask(hairClass: Int): HairMask? {
     val bytes = ByteArray(buffer.remaining())
     buffer.get(bytes)
     if (bytes.isEmpty() || image.width <= 0 || image.height <= 0) return null
-    return HairMask(bytes, image.width, image.height, hairClass)
+
+    // Soft, per-pixel confidence for the hair class (when requested) instead of the binary
+    // category mask, so the silhouette edge can fade out at the hairline rather than cut hard.
+    val confidence = confidenceMasks().orElse(null)?.getOrNull(hairClass)?.let { hairConfidence ->
+        runCatching {
+            val confBuffer = ByteBufferExtractor.extract(hairConfidence, MPImage.IMAGE_FORMAT_ALPHA)
+            confBuffer.rewind()
+            ByteArray(confBuffer.remaining()).also { confBuffer.get(it) }
+        }.getOrNull()
+    }
+
+    return HairMask(bytes, image.width, image.height, hairClass, confidence)
 }

@@ -27,12 +27,12 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.hairconsultant.app.domain.model.Haircut
-import com.hairconsultant.app.ui.facescan.ArTryOnOverlay
 
 /**
  * Live camera AR preview for one catalog haircut, launched straight from the Home catalog card.
- * Deliberately uses [PlainCameraPreview] instead of the Face Scan tab's mesh-overlaid camera —
- * no face-mesh dots, no analysis, no consultation, just the haircut filter over a plain live feed.
+ * Deliberately uses [HairSwapCameraPreview] instead of the Face Scan tab's mesh-overlaid camera —
+ * no face-mesh dots, no consultation; just live hair segmentation covering the user's real hair
+ * and showing this haircut's reference photo in its place.
  */
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -47,8 +47,7 @@ fun CameraTryOnScreen(haircut: Haircut, onClose: () -> Unit) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (cameraPermissionState.status.isGranted) {
-            PlainCameraPreview(modifier = Modifier.fillMaxSize())
-            ArTryOnOverlay(haircut)
+            HairSwapCameraPreview(haircut = haircut, modifier = Modifier.fillMaxSize())
         } else {
             Column(
                 modifier = Modifier

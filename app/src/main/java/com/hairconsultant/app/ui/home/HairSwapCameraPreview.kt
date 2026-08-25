@@ -1,5 +1,6 @@
-package com.hairconsultant.app.ui.facescan
+package com.hairconsultant.app.ui.home
 
+import android.os.SystemClock
 import android.widget.FrameLayout
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -9,41 +10,42 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.hairconsultant.app.data.analysis.FaceLandmarkStore
-import com.hairconsultant.app.data.analysis.LiveFaceLandmarker
+import com.hairconsultant.app.data.analysis.HairMask
 import com.hairconsultant.app.data.analysis.LiveHairSegmenter
+import com.hairconsultant.app.data.analysis.rotateAndMirror
+import com.hairconsultant.app.domain.model.Haircut
 import java.util.concurrent.Executors
 
-/** Full-screen live front-camera feed with MediaPipe face mesh + hair mask overlay. */
+/**
+ * Live front-camera feed with the user's real hair covered via live MediaPipe hair segmentation —
+ * no face-mesh detection at all (unlike the Face Scan tab's camera), just the segmenter deciding
+ * which live pixels are hair, with soft per-pixel confidence, so [HairSwapOverlayView] can cover
+ * them with a procedural skin-tone scalp fill instead of a sharp placeholder photo.
+ */
 @Composable
-fun CameraPreview(
-    landmarkStore: FaceLandmarkStore,
-    modifier: Modifier = Modifier
-) {
+fun HairSwapCameraPreview(haircut: Haircut, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val overlayFrame by landmarkStore.overlay.collectAsState()
+    var mask by remember { mutableStateOf<HairMask?>(null) }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
-    val hairSegmenter = remember { LiveHairSegmenter(context.applicationContext, landmarkStore::publishHair) }
-    val landmarker = remember {
-        LiveFaceLandmarker(context.applicationContext, landmarkStore, hairSegmenter)
+    val hairSegmenter = remember {
+        LiveHairSegmenter(context.applicationContext) { result -> mask = result }
     }
 
-    DisposableEffect(lifecycleOwner, landmarker, hairSegmenter) {
+    DisposableEffect(lifecycleOwner, hairSegmenter) {
         onDispose {
             runCatching { ProcessCameraProvider.getInstance(context).get().unbindAll() }
-            landmarker.close()
             hairSegmenter.close()
             analysisExecutor.shutdown()
-            landmarkStore.publishEmpty()
         }
     }
 
@@ -57,7 +59,7 @@ fun CameraPreview(
                     FrameLayout.LayoutParams.MATCH_PARENT
                 )
             }
-            val overlayView = FaceLandmarkOverlayView(ctx).apply {
+            val overlayView = HairSwapOverlayView(ctx).apply {
                 layoutParams = FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT
@@ -80,7 +82,14 @@ fun CameraPreview(
                         .build()
                         .also { imageAnalysis ->
                             imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
-                                landmarker.detect(imageProxy, isFrontCamera = true)
+                                try {
+                                    val bitmap = imageProxy.toBitmap()
+                                    val rotated = rotateAndMirror(bitmap, imageProxy.imageInfo.rotationDegrees, true)
+                                    if (rotated !== bitmap) bitmap.recycle()
+                                    hairSegmenter.detect(rotated, SystemClock.uptimeMillis())
+                                } finally {
+                                    imageProxy.close()
+                                }
                             }
                         }
                     runCatching {
@@ -92,16 +101,14 @@ fun CameraPreview(
                             analysis
                         )
                     }
-                    if (!landmarker.isReady) {
-                        landmarkStore.publishEmpty("Face guide failed to start")
-                    }
                 },
                 ContextCompat.getMainExecutor(ctx)
             )
             root
         },
         update = { root ->
-            (root.getChildAt(1) as? FaceLandmarkOverlayView)?.setFrame(overlayFrame)
+            val overlayView = root.getChildAt(1) as HairSwapOverlayView
+            overlayView.setMask(mask)
         }
     )
 }

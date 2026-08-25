@@ -7,7 +7,9 @@ data class HairMask(
     val labels: ByteArray,
     val width: Int,
     val height: Int,
-    val hairClass: Int = HairLengthClassifier.HAIR_CLASS
+    val hairClass: Int = HairLengthClassifier.HAIR_CLASS,
+    /** Optional per-pixel hair confidence (0-255), when the segmenter was asked for it. */
+    val hairConfidence: ByteArray? = null
 ) {
     val pixelCount: Int get() = width * height
 
@@ -15,6 +17,15 @@ data class HairMask(
         if (index !in labels.indices) return false
         val value = labels[index].toInt() and 0xFF
         return value == hairClass || value == 255
+    }
+
+    /** Soft alpha (0-255) for [index]: real confidence when available, else the binary fallback. */
+    fun hairAlpha(index: Int): Int {
+        val confidence = hairConfidence
+        if (confidence != null && index in confidence.indices) {
+            return confidence[index].toInt() and 0xFF
+        }
+        return if (isHair(index)) 255 else 0
     }
 }
 
