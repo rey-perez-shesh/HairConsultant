@@ -5,6 +5,8 @@ import androidx.room.Room
 import com.google.firebase.database.FirebaseDatabase
 import com.hairconsultant.app.data.analysis.FaceAnalyzer
 import com.hairconsultant.app.data.analysis.FaceLandmarkStore
+import com.hairconsultant.app.data.analysis.FaceShapeTfliteClassifier
+import com.hairconsultant.app.data.analysis.HairTypeTfliteClassifier
 import com.hairconsultant.app.data.analysis.LandmarkFaceAnalyzer
 import com.hairconsultant.app.data.analysis.MlKitFaceMeshVerifier
 import com.hairconsultant.app.data.analysis.StillImageFaceLandmarker
@@ -90,13 +92,19 @@ class AppContainer(private val appContext: Context) {
     private val stillFaceLandmarker by lazy { StillImageFaceLandmarker(appContext) }
     private val mlKitFaceMeshVerifier by lazy { MlKitFaceMeshVerifier(appContext) }
     private val stillHairSegmenter by lazy { StillImageHairSegmenter(appContext) }
+    // CNN classifiers trained on Kaggle data (see ml/train_classifiers.ipynb); both are optional
+    // at runtime and fall back to the geometric/pixel heuristics until their .tflite assets exist.
+    private val faceShapeCnn by lazy { FaceShapeTfliteClassifier(appContext) }
+    private val hairTypeCnn by lazy { HairTypeTfliteClassifier(appContext) }
     val faceAnalyzer: FaceAnalyzer by lazy {
         LandmarkFaceAnalyzer(
             appContext,
             faceLandmarkStore,
             stillFaceLandmarker,
             mlKitFaceMeshVerifier,
-            stillHairSegmenter
+            stillHairSegmenter,
+            faceShapeCnn,
+            hairTypeCnn
         )
     }
 

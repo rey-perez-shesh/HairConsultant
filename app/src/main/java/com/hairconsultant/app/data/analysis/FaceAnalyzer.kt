@@ -52,7 +52,9 @@ class LandmarkFaceAnalyzer(
     private val store: FaceLandmarkStore,
     private val stillLandmarker: StillImageFaceLandmarker,
     private val mlKitVerifier: MlKitFaceMeshVerifier,
-    private val stillHairSegmenter: StillImageHairSegmenter
+    private val stillHairSegmenter: StillImageHairSegmenter,
+    private val faceShapeCnn: FaceShapeTfliteClassifier,
+    private val hairTypeCnn: HairTypeTfliteClassifier
 ) : FaceAnalyzer {
 
     override suspend fun analyzeCameraFrame(): ScanResult {
@@ -96,33 +98,53 @@ class LandmarkFaceAnalyzer(
         bitmapForVerifier: android.graphics.Bitmap?,
         liveHair: HairMask?
     ): ScanResult {
-        val primary = FaceShapeClassifier.classify(points, width, height)
+        val heuristicShape = FaceShapeClassifier.classify(points, width, height)
             ?: throw NoFaceDetectedException("I found a face but couldn't measure its shape. Move a bit closer and try again.")
+        // faceShapeCnn takes the same landmark ratios the heuristic just computed, not pixels, so
+        // it can run whenever a face was measured at all (no bitmap needed). It only knows
+        // Heart/Oval/Round/Square (no usable training data for Diamond), so a low- or
+        // no-confidence CNN result falls back to the geometric heuristic, which is the only path
+        // that can still surface Diamond.
+        val cnnShape = faceShapeCnn.classify(heuristicShape.metrics)
+        val useCnnShape = cnnShape != null && cnnShape.confidence >= CNN_CONFIDENCE_FLOOR
+        val resolvedShape = if (useCnnShape) cnnShape!!.shape else heuristicShape.shape
+        val resolvedShapeConfidence = if (useCnnShape) cnnShape!!.confidence else heuristicShape.confidence
+
         val verifier = bitmapForVerifier?.let { mlKitVerifier.classify(it) }
-        val agreed = verifier == null || verifier.shape == primary.shape
+        val agreed = verifier == null || verifier.shape == resolvedShape
         val hairMask = liveHair ?: bitmapForVerifier?.let { stillHairSegmenter.segment(it) }
         val hair = hairMask?.let { HairLengthClassifier.classify(it, points) }
         val isBald = hair?.length == HairLength.BALD || hair == null
-        val appearance = if (bitmapForVerifier != null && hairMask != null && !isBald) {
+        val heuristicAppearance = if (bitmapForVerifier != null && hairMask != null && !isBald) {
             HairAppearanceClassifier.classify(bitmapForVerifier, hairMask)
         } else {
             null
         }
+        val cnnTexture = if (bitmapForVerifier != null && hairMask != null && !isBald) {
+            hairTypeCnn.classify(bitmapForVerifier, hairMask)
+        } else {
+            null
+        }
+        val appearance = if (cnnTexture != null && cnnTexture.confidence >= CNN_CONFIDENCE_FLOOR) {
+            heuristicAppearance?.copy(texture = cnnTexture.texture, textureConfidence = cnnTexture.confidence)
+        } else {
+            heuristicAppearance
+        }
         val shapeNote = when {
             verifier == null -> null
-            agreed -> "MediaPipe and ML Kit both measured ${primary.shape.displayName}."
-            else -> "Guide mesh suggested ${primary.shape.displayName}; ML Kit suggested ${verifier.shape.displayName}."
+            agreed -> "MediaPipe and ML Kit both measured ${resolvedShape.displayName}."
+            else -> "Guide mesh suggested ${resolvedShape.displayName}; ML Kit suggested ${verifier.shape.displayName}."
         }
         val hairNote = buildHairNote(hair, appearance)
         return ScanResult(
-            faceShape = primary.shape,
+            faceShape = resolvedShape,
             hairLength = hair?.length ?: HairLength.BALD,
             hairTexture = appearance?.texture ?: HairTexture.STRAIGHT,
             hairColor = appearance?.color ?: HairColor.OTHER,
             faceShapeConfidence = if (agreed && verifier != null) {
-                ((primary.confidence + verifier.confidence) / 2f).coerceAtMost(0.95f)
+                ((resolvedShapeConfidence + verifier.confidence) / 2f).coerceAtMost(0.95f)
             } else {
-                primary.confidence.coerceAtMost(0.7f)
+                resolvedShapeConfidence.coerceAtMost(if (useCnnShape) 0.9f else 0.7f)
             },
             hairLengthConfidence = hair?.confidence ?: 0.35f,
             hairTextureConfidence = if (isBald) 0f else (appearance?.textureConfidence ?: 0.35f),
@@ -132,6 +154,11 @@ class LandmarkFaceAnalyzer(
             analysisNote = listOfNotNull(shapeNote).joinToString(" ").ifBlank { null }?.plus(hairNote)
                 ?: hairNote.trim()
         )
+    }
+
+    companion object {
+        /** Softmax confidence a CNN result needs to be trusted over the heuristic fallback. */
+        private const val CNN_CONFIDENCE_FLOOR = 0.5f
     }
 
     private fun buildHairNote(

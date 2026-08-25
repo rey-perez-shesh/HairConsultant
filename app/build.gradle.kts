@@ -116,6 +116,9 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.mediapipe.vision)
     implementation(libs.mlkit.face.mesh.detection)
+    // Raw TFLite runtime for the face-shape/hair-type CNNs trained in ml/train_classifiers.ipynb
+    // (plain Keras export, not MediaPipe's metadata-based ImageClassifier task format).
+    implementation(libs.tensorflow.lite)
     // CameraX's ProcessCameraProvider exposes a ListenableFuture; without a real Guava on the
     // classpath only the empty placeholder artifact resolves, which breaks compilation.
     implementation(libs.guava)

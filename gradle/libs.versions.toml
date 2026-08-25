@@ -11,6 +11,7 @@ room = "2.6.1"
 camerax = "1.4.0"
 guava = "33.3.1-android"
 mediapipe = "0.10.21"
+tensorflowLite = "2.16.1"
 mlkitFaceMesh = "16.0.0-beta1"
 generativeai = "0.9.0"
 coil = "2.7.0"
@@ -55,6 +56,7 @@ androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", 
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 mediapipe-vision = { group = "com.google.mediapipe", name = "tasks-vision", version.ref = "mediapipe" }
+tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflowLite" }
 mlkit-face-mesh-detection = { group = "com.google.mlkit", name = "face-mesh-detection", version.ref = "mlkitFaceMesh" }
 google-generativeai = { group = "com.google.ai.client.generativeai", name = "generativeai", version.ref = "generativeai" }
 guava = { group = "com.google.guava", name = "guava", version.ref = "guava" }
