@@ -83,7 +83,13 @@ fun HairConsultantNavHost(container: AppContainer) {
             }
             composable(Screen.Home.route) {
                 val viewModel: HomeViewModel = viewModel(factory = ViewModelFactory(container) { c ->
-                    HomeViewModel(c.haircutRepository, c.geminiChatRepository, c.chatBotController)
+                    HomeViewModel(
+                        c.haircutRepository,
+                        c.geminiChatRepository,
+                        c.chatBotController,
+                        c.authRepository,
+                        c.userRepository
+                    )
                 })
                 LaunchedEffect(Unit) { viewModel.activateChat() }
                 HomeScreen(viewModel = viewModel)

@@ -2,31 +2,49 @@ package com.hairconsultant.app.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.hairconsultant.app.data.remote.firebase.AuthRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.data.remote.gemini.describeForChatContext
 import com.hairconsultant.app.data.repository.HaircutRepository
+import com.hairconsultant.app.data.repository.UserRepository
+import com.hairconsultant.app.domain.model.FaceShape
+import com.hairconsultant.app.domain.model.Gender
+import com.hairconsultant.app.domain.model.HairLength
+import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.HaircutCluster
+import com.hairconsultant.app.domain.model.matchingHaircutStyles
 import com.hairconsultant.app.ui.chatbot.ChatBotController
 import com.hairconsultant.app.ui.chatbot.ChatBotUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class HomeUiState(
+    /** Every cluster as loaded from the catalog, before the filter row below is applied. */
+    val allClusters: List<HaircutCluster> = emptyList(),
+    /** What's actually shown: [allClusters] narrowed by the four filters below. */
     val clusters: List<HaircutCluster> = emptyList(),
     val isLoading: Boolean = true,
     val selectedHaircut: Haircut? = null,
-    val cameraTryOnHaircut: Haircut? = null
+    val cameraTryOnHaircut: Haircut? = null,
+    /** Defaults to the signed-in user's profile gender once loaded, so Home opens already personalized. */
+    val genderFilter: Gender? = null,
+    val faceShapeFilter: FaceShape? = null,
+    val hairLengthFilter: HairLength? = null,
+    val hairTextureFilter: HairTexture? = null
 )
 
 class HomeViewModel(
     private val haircutRepository: HaircutRepository,
     private val chatRepository: GeminiChatRepository,
-    val chatBot: ChatBotController
+    val chatBot: ChatBotController,
+    private val authRepository: AuthRepository,
+    private val userRepository: UserRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -49,9 +67,44 @@ class HomeViewModel(
         }
         viewModelScope.launch {
             haircutRepository.observeClusters().collect { clusters ->
-                _uiState.update { it.copy(clusters = clusters) }
+                _uiState.update { it.copy(allClusters = clusters, clusters = applyFilters(clusters, it)) }
             }
         }
+        viewModelScope.launch {
+            val uid = authRepository.currentUser.value?.uid ?: return@launch
+            val gender = userRepository.observe(uid).first()?.gender ?: return@launch
+            setGenderFilter(gender)
+        }
+    }
+
+    /** The dropdown row's four filters — pass `null` to mean "All" for that category. */
+    fun setGenderFilter(gender: Gender?) = updateFilters { it.copy(genderFilter = gender) }
+    fun setFaceShapeFilter(faceShape: FaceShape?) = updateFilters { it.copy(faceShapeFilter = faceShape) }
+    fun setHairLengthFilter(length: HairLength?) = updateFilters { it.copy(hairLengthFilter = length) }
+    fun setHairTextureFilter(texture: HairTexture?) = updateFilters { it.copy(hairTextureFilter = texture) }
+
+    private inline fun updateFilters(transform: (HomeUiState) -> HomeUiState) {
+        _uiState.update { current ->
+            val updated = transform(current)
+            updated.copy(clusters = applyFilters(updated.allClusters, updated))
+        }
+    }
+
+    /** Narrows the full catalog to [HomeUiState]'s current filter selections; empty clusters drop out. */
+    private fun applyFilters(clusters: List<HaircutCluster>, filters: HomeUiState): List<HaircutCluster> {
+        val allowedStyles = filters.genderFilter?.matchingHaircutStyles()
+        return clusters
+            .filter { filters.hairLengthFilter == null || it.length == filters.hairLengthFilter }
+            .filter { filters.hairTextureFilter == null || it.texture == filters.hairTextureFilter }
+            .map { cluster ->
+                cluster.copy(
+                    haircuts = cluster.haircuts.filter { haircut ->
+                        (allowedStyles == null || haircut.genderStyle in allowedStyles) &&
+                            (filters.faceShapeFilter == null || filters.faceShapeFilter in haircut.recommendedFaceShapes)
+                    }
+                )
+            }
+            .filter { it.haircuts.isNotEmpty() }
     }
 
     /** Tapping a catalog card (or a chat-suggested style) shows a quick-look preview first. */

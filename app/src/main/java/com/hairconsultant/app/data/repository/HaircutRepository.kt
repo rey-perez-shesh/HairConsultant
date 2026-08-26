@@ -9,6 +9,7 @@ import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.HaircutCluster
+import com.hairconsultant.app.domain.model.HaircutGenderStyle
 import com.hairconsultant.app.domain.model.TreatmentPreference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -63,6 +64,7 @@ private fun HaircutEntity.toDomain() = Haircut(
     length = runCatching { HairLength.valueOf(length) }.getOrDefault(HairLength.MEDIUM),
     texture = runCatching { HairTexture.valueOf(texture) }.getOrDefault(HairTexture.STRAIGHT),
     recommendedFaceShapes = recommendedFaceShapes.mapNotNull { runCatching { FaceShape.valueOf(it) }.getOrNull() },
+    genderStyle = runCatching { HaircutGenderStyle.valueOf(genderStyle) }.getOrDefault(HaircutGenderStyle.UNISEX),
     treatment = runCatching { TreatmentPreference.valueOf(treatment) }.getOrDefault(TreatmentPreference.NONE),
     description = description
 )
@@ -74,6 +76,7 @@ private fun Haircut.toEntity() = HaircutEntity(
     length = length.name,
     texture = texture.name,
     recommendedFaceShapes = recommendedFaceShapes.map { it.name },
+    genderStyle = genderStyle.name,
     treatment = treatment.name,
     description = description
 )

@@ -38,6 +38,20 @@ enum class FaceShape(val displayName: String) {
     DIAMOND("Diamond")
 }
 
+/** Who a catalog haircut is styled for, independent of the wearer's own [Gender]. */
+enum class HaircutGenderStyle(val displayName: String) {
+    MASCULINE("Masculine"),
+    FEMININE("Feminine"),
+    UNISEX("Unisex")
+}
+
+/** Home screen's default catalog filter for a signed-in user's [Gender]: their matching styles plus unisex. */
+fun Gender.matchingHaircutStyles(): Set<HaircutGenderStyle> = when (this) {
+    Gender.MALE -> setOf(HaircutGenderStyle.MASCULINE, HaircutGenderStyle.UNISEX)
+    Gender.FEMALE -> setOf(HaircutGenderStyle.FEMININE, HaircutGenderStyle.UNISEX)
+    Gender.NON_BINARY, Gender.PREFER_NOT_TO_SAY -> setOf(HaircutGenderStyle.UNISEX)
+}
+
 /** Optional chemical treatment the user wants their next style to involve. */
 enum class TreatmentPreference(val displayName: String) {
     NONE("No treatment"),

@@ -11,6 +11,7 @@ data class Haircut(
     val length: HairLength,
     val texture: HairTexture,
     val recommendedFaceShapes: List<FaceShape>,
+    val genderStyle: HaircutGenderStyle = HaircutGenderStyle.UNISEX,
     val treatment: TreatmentPreference = TreatmentPreference.NONE,
     val description: String = ""
 )
