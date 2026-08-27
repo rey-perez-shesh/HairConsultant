@@ -92,7 +92,9 @@ class HomeViewModel(
 
     /** Narrows the full catalog to [HomeUiState]'s current filter selections; empty clusters drop out. */
     private fun applyFilters(clusters: List<HaircutCluster>, filters: HomeUiState): List<HaircutCluster> {
-        val allowedStyles = filters.genderFilter?.matchingHaircutStyles()
+        val allowedStyles = filters.genderFilter
+            ?.takeIf { it != Gender.NON_BINARY && it != Gender.PREFER_NOT_TO_SAY }
+            ?.matchingHaircutStyles()
         return clusters
             .filter { filters.hairLengthFilter == null || it.length == filters.hairLengthFilter }
             .filter { filters.hairTextureFilter == null || it.texture == filters.hairTextureFilter }
