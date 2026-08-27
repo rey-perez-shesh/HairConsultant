@@ -141,8 +141,8 @@ private fun CatalogFilterRow(
             FilterDropdown(
                 label = "Gender",
                 selected = uiState.genderFilter,
-                options = Gender.entries,
-                optionLabel = { it.displayName },
+                options = listOf(Gender.MALE, Gender.FEMALE),
+                optionLabel = { genderFilterLabel(it) },
                 onSelected = onGenderSelected,
                 modifier = Modifier.weight(1f)
             )
@@ -177,4 +177,10 @@ private fun CatalogFilterRow(
             )
         }
     }
+}
+
+/** A signed-in "Non-binary"/"Prefer not to say" user has no dedicated dropdown entry, so their default shows as "All". */
+private fun genderFilterLabel(gender: Gender): String = when (gender) {
+    Gender.NON_BINARY, Gender.PREFER_NOT_TO_SAY -> "All"
+    else -> gender.displayName
 }
