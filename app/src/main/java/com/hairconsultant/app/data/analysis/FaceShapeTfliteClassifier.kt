@@ -43,8 +43,8 @@ class FaceShapeTfliteClassifier(context: Context) : AutoCloseable {
         loadError = "${error::class.qualifiedName}: ${error.message}"
         Log.i(TAG, "$MODEL_ASSET not bundled; using geometric heuristic only", error)
     }.getOrNull()?.also { model ->
-        val inShape = model.getInputTensor(0).shape().joinToString()
-        val outShape = model.getOutputTensor(0).shape().joinToString()
+        val inShape = runCatching { model.getInputTensor(0).shape()?.joinToString() }.getOrNull() ?: "?"
+        val outShape = runCatching { model.getOutputTensor(0).shape()?.joinToString() }.getOrNull() ?: "?"
         Log.i(TAG, "$MODEL_ASSET loaded: input=[$inShape] output=[$outShape] labels=${LABELS.toList()}")
     }
 

@@ -44,7 +44,8 @@ data class FaceScanUiState(
     val fixTarget: ScanFixTarget? = null,
     val afterRescan: Boolean = false,
     val suggestions: List<Haircut> = emptyList(),
-    val triedOnHaircut: Haircut? = null
+    val triedOnHaircut: Haircut? = null,
+    val tryOnHairColor: HairColorPreset = HairColorPreset.NATURAL
 )
 
 class FaceScanViewModel(
@@ -335,8 +336,12 @@ class FaceScanViewModel(
         persistConsultation(selectedHaircut = haircut)
     }
 
+    fun onTryOnHairColor(color: HairColorPreset) {
+        _uiState.update { it.copy(tryOnHairColor = color) }
+    }
+
     fun clearTryOn() {
-        _uiState.update { it.copy(triedOnHaircut = null) }
+        _uiState.update { it.copy(triedOnHaircut = null, tryOnHairColor = HairColorPreset.NATURAL) }
     }
 
     /** Saves this session as a consultation (Room now, Firestore in the background) once a scan has a result. */

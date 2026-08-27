@@ -13,19 +13,19 @@ data class HairMask(
 ) {
     val pixelCount: Int get() = width * height
 
-    fun isHair(index: Int): Boolean {
-        if (index !in labels.indices) return false
-        val value = labels[index].toInt() and 0xFF
-        return value == hairClass || value == 255
-    }
-
-    /** Soft alpha (0-255) for [index]: real confidence when available, else the binary fallback. */
     fun hairAlpha(index: Int): Int {
         val confidence = hairConfidence
         if (confidence != null && index in confidence.indices) {
             return confidence[index].toInt() and 0xFF
         }
         return if (isHair(index)) 255 else 0
+    }
+
+    fun isHair(index: Int): Boolean {
+        val lab = labels
+        if (index !in lab.indices) return false
+        val value = lab[index].toInt() and 0xFF
+        return value == hairClass || value == 255
     }
 }
 

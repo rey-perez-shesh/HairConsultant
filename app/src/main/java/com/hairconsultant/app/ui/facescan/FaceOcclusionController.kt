@@ -90,9 +90,9 @@ class FaceOcclusionController(
         sphere.rotation = Rotation(pose.pitchDeg, modelYaw, pose.rollDeg)
 
         // Ellipsoid covering cheeks / eyes / nose / mouth; leaves scalp & side hair free.
-        val rx = (faceW * FACE_WORLD_SCALE_X).coerceIn(0.06f, 0.28f)
-        val ry = (faceH * FACE_WORLD_SCALE_Y).coerceIn(0.07f, 0.32f)
-        val rz = (rx * FACE_DEPTH_RATIO).coerceIn(0.045f, 0.18f)
+        val rx = (faceW * FACE_WORLD_SCALE_X).coerceIn(0.07f, 0.30f)
+        val ry = (faceH * FACE_WORLD_SCALE_Y).coerceIn(0.08f, 0.34f)
+        val rz = (rx * FACE_DEPTH_RATIO).coerceIn(0.05f, 0.20f)
         sphere.scale = Scale(rx, ry, rz)
         sphere.isVisible = true
     }
@@ -127,9 +127,9 @@ class FaceOcclusionController(
     companion object {
         private const val TAG = "FaceOcclusion"
         /** World scale from normalized face width → ellipsoid radius. */
-        private const val FACE_WORLD_SCALE_X = 0.55f
-        private const val FACE_WORLD_SCALE_Y = 0.68f
-        private const val FACE_DEPTH_RATIO = 0.78f
-        private const val FACE_OCCLUDE_Z_BIAS = 0.045f
+        private const val FACE_WORLD_SCALE_X = 0.58f
+        private const val FACE_WORLD_SCALE_Y = 0.72f
+        private const val FACE_DEPTH_RATIO = 0.80f
+        private const val FACE_OCCLUDE_Z_BIAS = 0.05f
     }
 }

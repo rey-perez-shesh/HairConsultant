@@ -1,4 +1,4 @@
-package com.hairconsultant.app.ui.facescan
+﻿package com.hairconsultant.app.ui.facescan
 
 import android.Manifest
 import androidx.compose.foundation.background
@@ -70,7 +70,8 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
                 ArTryOnOverlay(
                     haircut = haircut,
                     landmarkStore = viewModel.landmarkStore,
-                    faceArAttachment = faceArAttachment
+                    faceArAttachment = faceArAttachment,
+                    hairColor = uiState.tryOnHairColor
                 )
             }
         } else {
@@ -124,12 +125,24 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
         }
 
         if (uiState.suggestions.isNotEmpty()) {
-            TryOnStrip(
-                suggestions = uiState.suggestions,
-                selectedHaircut = uiState.triedOnHaircut,
-                onSelect = viewModel::onHaircutTryOn,
-                modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)
-            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (uiState.triedOnHaircut != null) {
+                    HairColorStrip(
+                        selected = uiState.tryOnHairColor,
+                        onSelect = viewModel::onTryOnHairColor
+                    )
+                }
+                TryOnStrip(
+                    suggestions = uiState.suggestions,
+                    selectedHaircut = uiState.triedOnHaircut,
+                    onSelect = viewModel::onHaircutTryOn
+                )
+            }
         }
 
         if (cameraPermissionState.status.isGranted && uiState.stage == FaceScanStage.IDLE) {
@@ -157,3 +170,5 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
         )
     }
 }
+
+

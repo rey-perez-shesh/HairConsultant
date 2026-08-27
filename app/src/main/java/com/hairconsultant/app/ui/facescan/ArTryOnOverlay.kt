@@ -1,4 +1,4 @@
-package com.hairconsultant.app.ui.facescan
+﻿package com.hairconsultant.app.ui.facescan
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -53,7 +53,7 @@ private data class FacePunchFrame(
     val bitmap: Bitmap?
 )
 
-/** Debug HUD — headYaw is estimator yaw (≈0 frontal); modelYaw includes MODEL_YAW_OFFSET. */
+/** Debug HUD â€” headYaw is estimator yaw (â‰ˆ0 frontal); modelYaw includes MODEL_YAW_OFFSET. */
 private data class ArDebugSnapshot(
     val points: List<LandmarkPoint>,
     val imageWidth: Int,
@@ -87,13 +87,14 @@ private data class ArDebugSnapshot(
 fun BoxScope.ArTryOnOverlay(
     haircut: Haircut,
     landmarkStore: FaceLandmarkStore,
-    faceArAttachment: FaceArSceneAttachment
+    faceArAttachment: FaceArSceneAttachment,
+    hairColor: HairColorPreset = HairColorPreset.NATURAL
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var mode by remember { mutableStateOf(TryOnMode.Loading) }
-    var status by remember { mutableStateOf("Try-on — ${haircut.name}") }
+    var status by remember { mutableStateOf("Try-on â€” ${haircut.name}") }
     var statusIsError by remember { mutableStateOf(false) }
     var modelNodeRef by remember { mutableStateOf<ModelNode?>(null) }
     var modelBounds by remember { mutableStateOf<WigModelBounds?>(null) }
@@ -102,9 +103,11 @@ fun BoxScope.ArTryOnOverlay(
     var debugSnapshot by remember { mutableStateOf<ArDebugSnapshot?>(null) }
     var facePunch by remember { mutableStateOf<FacePunchFrame?>(null) }
 
-    DisposableEffect(lifecycleOwner, faceArAttachment, haircut.name) {
+    // SceneView stays alive across hairstyle switches â€” only the ModelNode/GLB is replaced.
+    // Camera + MediaPipe + HeadPoseEstimator are owned by CameraPreview and are not restarted here.
+    DisposableEffect(lifecycleOwner, faceArAttachment) {
         mode = TryOnMode.Loading
-        status = "Try-on — ${haircut.name}"
+        status = "Try-on â€” ${haircut.name}"
         statusIsError = false
         modelNodeRef = null
         modelBounds = null
@@ -129,22 +132,34 @@ fun BoxScope.ArTryOnOverlay(
         }
     }
 
-    LaunchedEffect(haircut.name, faceArAttachment) {
+    val wigAsset = remember(haircut.id, haircut.name) { HairstyleArCatalog.modelAssetFor(haircut) }
+    val assetConfig = remember(haircut.id, haircut.name) { HairstyleArCatalog.configFor(haircut) }
+
+    LaunchedEffect(haircut.id, wigAsset, faceArAttachment) {
         val sceneView = faceArAttachment.sceneView ?: return@LaunchedEffect
 
-        status = "Loading GLB…"
+        // Hide/remove the previously active hairstyle before loading the next (one GLB at a time).
+        mode = TryOnMode.Loading
+        status = "Loading ${haircut.name}â€¦"
         statusIsError = false
+        modelNodeRef?.let { node ->
+            runCatching { sceneView.removeChildNode(node) }
+        }
+        modelNodeRef = null
+        modelBounds = null
+        faceOcclusion?.destroy()
+        faceOcclusion = null
 
         val loaded = try {
             withTimeout(GLB_LOAD_TIMEOUT_MS) {
-                sceneView.modelLoader.loadModelInstance(WIG_ASSET)
+                sceneView.modelLoader.loadModelInstance(wigAsset)
             }
         } catch (_: TimeoutCancellationException) {
             status = "GLB load timed out"
             statusIsError = true
             null
         } catch (t: Throwable) {
-            Log.e(TAG, "GLB load failed: $WIG_ASSET", t)
+            Log.e(TAG, "GLB load failed: $wigAsset", t)
             status = "GLB load failed (${t.message ?: "error"})"
             statusIsError = true
             null
@@ -159,14 +174,21 @@ fun BoxScope.ArTryOnOverlay(
         val bounds = WigModelBounds.from(loaded)
         Log.i(
             TAG,
-            "GLB loaded $WIG_ASSET AABB center=(${bounds.centerX},${bounds.centerY},${bounds.centerZ}) " +
+            "GLB loaded $wigAsset for ${haircut.id}/${haircut.name} " +
+                "AABB center=(${bounds.centerX},${bounds.centerY},${bounds.centerZ}) " +
                 "size=(${bounds.width},${bounds.height},${bounds.depth})"
         )
         modelBounds = bounds
 
-        // Depth occluder first so it writes depth before hair draws (backup to punch-through).
-        val occluder = FaceOcclusionController(sceneView).also { it.ensureCreated() }
-        faceOcclusion = occluder
+        // Depth occluder only when this asset needs face punch-through (e.g. long bangs).
+        // Boy/buzz cuts skip it â€” a face-shaped depth hole looks like a second face in the hair.
+        val useFaceCutout = assetConfig?.enableFaceCutout != false
+        if (useFaceCutout) {
+            val occluder = FaceOcclusionController(sceneView).also { it.ensureCreated() }
+            faceOcclusion = occluder
+        } else {
+            faceOcclusion = null
+        }
 
         val node = ModelNode(
             modelInstance = loaded,
@@ -182,14 +204,24 @@ fun BoxScope.ArTryOnOverlay(
         }
         sceneView.addChildNode(node)
         modelNodeRef = node
+        Log.i(TAG, "GLB ready â€” haircut=${haircut.name} color=${hairColor.name} asset=$wigAsset")
+        HairMaterialTint.apply(node, hairColor, wigAsset)
         SceneViewTransparency.configure(sceneView, WIG_CAMERA_Z)
         sceneView.visibility = View.VISIBLE
         mode = TryOnMode.TrackingGlb
-        status = "AR tracking — ${haircut.name} · waiting for face…"
+        status = "AR tracking â€” ${haircut.name} Â· waiting for faceâ€¦"
         statusIsError = false
     }
 
-    LaunchedEffect(mode, modelNodeRef, modelBounds, faceOcclusion, landmarkStore, haircut.name) {
+    // Tint only â€” does not touch crown / pose / scale / scene recreate.
+    LaunchedEffect(hairColor, modelNodeRef, mode, wigAsset) {
+        if (mode != TryOnMode.TrackingGlb) return@LaunchedEffect
+        val node = modelNodeRef ?: return@LaunchedEffect
+        Log.i(TAG, "Applying hair color ${hairColor.name} to live ModelNode")
+        HairMaterialTint.apply(node, hairColor, wigAsset)
+    }
+
+    LaunchedEffect(mode, modelNodeRef, modelBounds, faceOcclusion, landmarkStore, haircut.id, assetConfig) {
         if (mode != TryOnMode.TrackingGlb) return@LaunchedEffect
         val node = modelNodeRef ?: return@LaunchedEffect
         val bounds = modelBounds ?: return@LaunchedEffect
@@ -207,35 +239,42 @@ fun BoxScope.ArTryOnOverlay(
             }
             val raw = HeadPoseEstimator.estimate(frame.points) ?: return@collect
             smooth = HeadPoseEstimator.smooth(smooth, raw)
-            val applied = applyHeadPose(node, smooth!!, frame.points, bounds)
-            occluder?.update(
-                pose = smooth!!,
-                landmarks = frame.points,
-                mirrorX = HAIR_MIRROR_X,
-                modelYawOffset = MODEL_YAW_OFFSET,
-                modelYawSign = 1f
-            )
-            // Sharp face over SceneView (store recycles live bitmaps each detect — copy frame).
-            val src = landmarkStore.peekLatestBitmap()
-                ?.takeUnless { it.isRecycled }
-                ?: landmarkStore.peekPreviewBitmap()?.takeUnless { it.isRecycled }
-            val punchBmp = src?.let { b ->
-                runCatching { b.copy(b.config ?: Bitmap.Config.ARGB_8888, false) }.getOrNull()
-            }
-            val previousPunch = facePunch?.bitmap
-            facePunch = FacePunchFrame(
-                points = frame.points,
-                imageWidth = frame.imageWidth,
-                imageHeight = frame.imageHeight,
-                bitmap = punchBmp
-            )
-            if (previousPunch != null && previousPunch !== punchBmp && !previousPunch.isRecycled) {
-                previousPunch.recycle()
+            val applied = applyHeadPose(node, smooth!!, frame.points, bounds, assetConfig)
+            val useFaceCutout = assetConfig?.enableFaceCutout != false
+            if (useFaceCutout) {
+                occluder?.update(
+                    pose = smooth!!,
+                    landmarks = frame.points,
+                    mirrorX = HAIR_MIRROR_X,
+                    modelYawOffset = MODEL_YAW_OFFSET,
+                    modelYawSign = 1f
+                )
+                // Sharp face over SceneView (store recycles live bitmaps each detect â€” copy frame).
+                val src = landmarkStore.peekLatestBitmap()
+                    ?.takeUnless { it.isRecycled }
+                    ?: landmarkStore.peekPreviewBitmap()?.takeUnless { it.isRecycled }
+                val punchBmp = src?.let { b ->
+                    runCatching { b.copy(b.config ?: Bitmap.Config.ARGB_8888, false) }.getOrNull()
+                }
+                val previousPunch = facePunch?.bitmap
+                facePunch = FacePunchFrame(
+                    points = frame.points,
+                    imageWidth = frame.imageWidth,
+                    imageHeight = frame.imageHeight,
+                    bitmap = punchBmp
+                )
+                if (previousPunch != null && previousPunch !== punchBmp && !previousPunch.isRecycled) {
+                    previousPunch.recycle()
+                }
+            } else {
+                occluder?.setVisible(false)
+                facePunch?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+                facePunch = null
             }
             updates++
             poseUpdateCount = updates
             if (updates % 15 == 0) {
-                status = "AR tracking — ${haircut.name} · $updates pose updates"
+                status = "AR tracking â€” ${haircut.name} Â· $updates pose updates"
             }
             if (DEBUG_AR) {
                 val left = frame.points[FaceShapeClassifier.LEFT_CHEEK]
@@ -283,8 +322,8 @@ fun BoxScope.ArTryOnOverlay(
         if (DEBUG_AR) {
             ArDebugGuidesOnly(debugSnapshot)
             Surface(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
+        modifier = Modifier
+            .align(Alignment.TopCenter)
                     .padding(top = 12.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 shadowElevation = 4.dp
@@ -305,18 +344,18 @@ fun BoxScope.ArTryOnOverlay(
                 )
             }
         } else if (statusIsError) {
-            Surface(
+    Surface(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 12.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 shadowElevation = 4.dp
-            ) {
-                Text(
+    ) {
+        Text(
                     text = status,
-                    style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                 )
             }
         }
@@ -326,7 +365,7 @@ fun BoxScope.ArTryOnOverlay(
 @Composable
 fun WigWarmupHost(enabled: Boolean) = Unit
 
-/** Guides only — NEVER draws a second camera Bitmap. */
+/** Guides only â€” NEVER draws a second camera Bitmap. */
 @Composable
 private fun ArDebugGuidesOnly(snapshot: ArDebugSnapshot?) {
     val snap = snapshot ?: return
@@ -416,7 +455,8 @@ private fun applyHeadPose(
     node: ModelNode,
     pose: HeadPose,
     landmarks: List<LandmarkPoint>,
-    bounds: WigModelBounds
+    bounds: WigModelBounds,
+    assetConfig: HairstyleArCatalog.AssetConfig? = null
 ): AppliedHairTransform {
     node.isVisible = !AR_HIDE_GLB
 
@@ -429,15 +469,26 @@ private fun applyHeadPose(
     val posX = if (HAIR_MIRROR_X) -pose.positionX else pose.positionX
     val posY = pose.positionY + CROWN_VERTICAL_OFFSET
     val posZ = pose.positionZ
-    // Prepared GLB origin IS the crown (maxY≈0) — place node origin on crown. No AABB nudge.
-    node.position = Position(posX, posY, posZ)
 
-    // Head-width scale (NOT the 0.42 position factor — that made the hair tiny).
+    // Head-width scale (NOT the 0.42 position factor â€” that made the hair tiny).
     // scale = (headWidth / HAIR_REFERENCE_WIDTH) * HAIR_SCALE_MULTIPLIER * (HAIR_REFERENCE_WIDTH / glbWidth)
     //       = headWidth * HAIR_SCALE_MULTIPLIER / glbWidth
     val widthRatio = headWidthNorm / HAIR_REFERENCE_WIDTH
-    val scale = (widthRatio * HAIR_SCALE_MULTIPLIER * (HAIR_REFERENCE_WIDTH / bounds.width))
+    val localScaleMul = assetConfig?.localScaleMul ?: 1f
+    val scale = (widthRatio * HAIR_SCALE_MULTIPLIER * (HAIR_REFERENCE_WIDTH / bounds.width) *
+        localScaleMul * HAIR_FIT_SCALE)
         .coerceIn(0.05f, 1.5f)
+
+    // Optional per-asset local offset (Meshy centered origins â†’ align AABB maxY to crown).
+    // Does not change the shared crown / tracking math.
+    val localOx = assetConfig?.localOffsetX ?: 0f
+    val localOy = localCrownAlignOffsetY(bounds, assetConfig) + (assetConfig?.localOffsetY ?: 0f)
+    val localOz = assetConfig?.localOffsetZ ?: 0f
+    node.position = Position(
+        posX + localOx * scale,
+        posY + localOy * scale,
+        posZ + localOz * scale
+    )
     node.scale = Scale(scale)
 
     // ONE asset facing correction: GLB forward is opposite SceneView camera forward.
@@ -447,6 +498,24 @@ private fun applyHeadPose(
     return AppliedHairTransform(headWidthNorm, modelYaw, scale, posX, posY, posZ)
 }
 
+/**
+ * Model-space Y so mesh top sits on the crown node origin for centered Meshy exports.
+ * Prepared crown-origin GLBs (maxY â‰ˆ 0) return 0.
+ */
+private fun localCrownAlignOffsetY(
+    bounds: WigModelBounds,
+    config: HairstyleArCatalog.AssetConfig?
+): Float {
+    if (config?.alignCrownToMaxY != true) return 0f
+    val maxY = bounds.centerY + bounds.height * 0.5f
+    return if (kotlin.math.abs(maxY) < 0.08f) 0f else -maxY
+}
+
+/**
+ * Hides the inner underside of a single-mesh Meshy hair shell (gray forehead â€œhelmetâ€ plate)
+ * without shrinking or fading the whole GLB. Enables back-face culling so only the outer
+ * hair surface is drawn across the face opening.
+ */
 private fun estimateHeadWidth(landmarks: List<LandmarkPoint>, faceWidth: Float): Float {
     val foreheadWidth = if (landmarks.size > FaceShapeClassifier.RIGHT_TEMPLE) {
         (landmarks[FaceShapeClassifier.RIGHT_TEMPLE].x -
@@ -457,7 +526,8 @@ private fun estimateHeadWidth(landmarks: List<LandmarkPoint>, faceWidth: Float):
     return maxOf(faceWidth, foreheadWidth).coerceIn(0.10f, 0.72f)
 }
 
-const val WIG_ASSET = "wigs/Waves_AR_Prepared.glb"
+/** Default try-on GLB when a catalog card has no dedicated mapping. */
+const val WIG_ASSET = "wigs/Meshy_AI__buzzcut_texture.glb"
 
 private const val WIG_CAMERA_Z = 1.0f
 private const val GLB_LOAD_TIMEOUT_MS = 60_000L
@@ -474,14 +544,14 @@ private const val AR_HIDE_GLB = false
  * SceneView +Y nudge for the shared crown anchor (debug line + GLB origin).
  * + = higher on the head. Horizontally unchanged.
  */
-private const val CROWN_VERTICAL_OFFSET = 0.04f
+private const val CROWN_VERTICAL_OFFSET = 0.08f
 
 /** Negate estimator X once so SceneView +X matches screen right. */
 private const val HAIR_MIRROR_X = true
 
 /**
  * Single asset facing correction (degrees). GLB forward faces opposite the SceneView camera,
- * so frontal headYaw≈0 requires modelYaw≈180. Do not add 180 anywhere else.
+ * so frontal headYawâ‰ˆ0 requires modelYawâ‰ˆ180. Do not add 180 anywhere else.
  */
 private const val MODEL_YAW_OFFSET = 180f
 
@@ -490,6 +560,15 @@ private const val HAIR_REFERENCE_WIDTH = 0.34f
 
 /**
  * scale = (headWidth / HAIR_REFERENCE_WIDTH) * HAIR_SCALE_MULTIPLIER * (HAIR_REFERENCE_WIDTH / glbWidth)
- * ↑ larger · ↓ smaller. Calibrated so w≈0.40 ≈ head-sized for Waves_AR_Prepared (glbW≈1.47).
+ * â†‘ larger Â· â†“ smaller. Calibrated so wâ‰ˆ0.40 â‰ˆ head-sized for Waves_AR_Prepared (glbWâ‰ˆ1.47).
  */
 private const val HAIR_SCALE_MULTIPLIER = 1.25f
+
+/**
+ * Uniform fit vs the client's head. Applied only to final ModelNode scale (and local asset offsets
+ * that already scale with it). Does not change crown / pose / rotation.
+ * Revert: set to `1f`. If still oversized, try `0.80f` then `0.75f`.
+ */
+private const val HAIR_FIT_SCALE = 0.85f
+
+

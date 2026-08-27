@@ -32,20 +32,39 @@ object SampleData {
         val name: String,
         val faceShapes: List<FaceShape>,
         val description: String,
-        val genderStyle: HaircutGenderStyle = UNISEX
+        val genderStyle: HaircutGenderStyle = UNISEX,
+        /** Optional Coil-compatible image URL (android.resource://… for local thumbs). */
+        val imageUrl: String? = null
     )
+
+    /** Catalog IDs whose name/thumbnail were updated for Meshy GLB try-on assets. */
+    val MESHY_REPLACED_IDS: Set<String> = setOf(
+        "SHORT_STRAIGHT_0", // Boy Cut
+        "SHORT_STRAIGHT_1", // Curtains
+        "LONG_WAVY_1" // Long Wavy Hair (thumbnail/name; enable AR in HairstyleArCatalog.DEDICATED_GLB_IDS)
+    )
+
+    private const val PKG = "com.hairconsultant.app"
+    private val THUMB_BOY_CUT =
+        "android.resource://$PKG/drawable/thumb_buzz_cut"
+    private val THUMB_CURTAINS =
+        "android.resource://$PKG/drawable/thumb_curtains"
+    private val THUMB_LONG_WAVY =
+        "android.resource://$PKG/drawable/thumb_long_wavy"
 
     private val catalog: Map<Pair<HairLength, HairTexture>, List<Seed>> = mapOf(
         (HairLength.SHORT to HairTexture.STRAIGHT) to listOf(
             Seed(
-                "Textured Pixie", listOf(SQUARE, HEART, DIAMOND),
-                "Choppy, piece-y layers soften a square jaw, while the side-swept fringe covers a wide forehead — flattering on heart and diamond shapes too.",
-                genderStyle = FEMININE
+                "Boy Cut", listOf(SQUARE, HEART, DIAMOND),
+                "A clean short boy cut softens a square jaw with height at the crown, while the close silhouette keeps a wide forehead in proportion — flattering on heart and diamond shapes too.",
+                genderStyle = MASCULINE,
+                imageUrl = THUMB_BOY_CUT
             ),
             Seed(
-                "Classic Blunt Bob", listOf(OVAL, HEART, DIAMOND),
-                "A crisp jaw-length line adds width right at the chin, balancing a heart or diamond face's narrower jaw, while an oval face wears the graphic shape with ease.",
-                genderStyle = FEMININE
+                "Curtains", listOf(OVAL, HEART, DIAMOND),
+                "A center-parted curtains cut frames the face with soft length at the temples and chin, balancing a heart or diamond face's narrower jaw while an oval face wears the shape with ease.",
+                genderStyle = UNISEX,
+                imageUrl = THUMB_CURTAINS
             ),
             Seed(
                 "Side-Swept Fringe Crop", listOf(ROUND, HEART, DIAMOND),
@@ -351,9 +370,10 @@ object SampleData {
                 genderStyle = FEMININE
             ),
             Seed(
-                "Long Layers with Waves", listOf(OVAL, SQUARE),
-                "Wave-enhanced layers break up a square jawline with soft movement, and an oval face's natural balance suits the long, layered wave pattern.",
-                genderStyle = FEMININE
+                "Long Wavy Hair", listOf(OVAL, SQUARE),
+                "Long wave-enhanced length breaks up a square jawline with soft movement, and an oval face's natural balance suits the flowing wavy silhouette.",
+                genderStyle = FEMININE,
+                imageUrl = THUMB_LONG_WAVY
             ),
             Seed(
                 "Long Wavy Shag", listOf(ROUND, OVAL),
@@ -465,7 +485,7 @@ object SampleData {
                 Haircut(
                     id = id,
                     name = seed.name,
-                    imageUrl = "https://picsum.photos/seed/$id/400/520",
+                    imageUrl = seed.imageUrl ?: "https://picsum.photos/seed/$id/400/520",
                     length = length,
                     texture = texture,
                     recommendedFaceShapes = seed.faceShapes,

@@ -1,4 +1,4 @@
-package com.hairconsultant.app.ui.facescan
+﻿package com.hairconsultant.app.ui.facescan
 
 import android.view.View
 import android.widget.FrameLayout

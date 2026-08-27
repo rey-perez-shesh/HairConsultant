@@ -51,9 +51,30 @@ class HaircutRepositoryImpl(
         // One-time migration: populates Firestore's "haircuts" collection from the curated
         // catalog the first time this runs against an empty project; a no-op afterwards.
         runCatching { remote.seedIfEmpty(SampleData.allHaircuts) }
+        // Patch only the Meshy-replaced rows (names/thumbnails) without rebuilding the catalog.
+        val meshyPatches = SampleData.allHaircuts.filter { it.id in SampleData.MESHY_REPLACED_IDS }
+        runCatching { remote.upsertHaircuts(meshyPatches) }
         val remoteHaircuts = runCatching { remote.fetchAll() }.getOrNull()
-        val haircuts = remoteHaircuts?.takeIf { it.isNotEmpty() } ?: SampleData.allHaircuts
+        val haircuts = applyMeshyCatalogPatches(
+            remoteHaircuts?.takeIf { it.isNotEmpty() } ?: SampleData.allHaircuts
+        )
         haircutDao.insertAll(haircuts.map { it.toEntity() })
+    }
+}
+
+/** Prefer SampleData name/thumbnail/description for the three Meshy-replaced IDs. */
+private fun applyMeshyCatalogPatches(haircuts: List<Haircut>): List<Haircut> {
+    val patches = SampleData.allHaircuts
+        .filter { it.id in SampleData.MESHY_REPLACED_IDS }
+        .associateBy { it.id }
+    if (patches.isEmpty()) return haircuts
+    return haircuts.map { haircut ->
+        val patch = patches[haircut.id] ?: return@map haircut
+        haircut.copy(
+            name = patch.name,
+            imageUrl = patch.imageUrl,
+            description = patch.description
+        )
     }
 }
 

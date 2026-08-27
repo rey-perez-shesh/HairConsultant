@@ -1,21 +1,27 @@
 # Wig assets (Face AR)
 
-Primary 3D asset (try-on):
+Default try-on GLB:
 
-`Waves_AR_Prepared.glb` — exported from `Waves_AR_Prepared.blend`
-(origin = crown/scalp, hair hangs in −Y)
+`Meshy_AI__buzzcut_texture.glb` — Boy Cut
 
-Legacy / unused by try-on:
+Dedicated AR mappings (`HairstyleArCatalog`):
 
-- `Meshy_AI__0823201911_texture.glb`
-- `Meshy_AI_Layered_Brunette_Hair_0822091245_generate.glb`
+- `Meshy_AI__buzzcut_texture.glb` ← SHORT_STRAIGHT_0 "Boy Cut"
+- `Meshy_AI_layered_hair_3k_tris_curtain_texture.glb` ← SHORT_STRAIGHT_1 "Curtains"
+
+Legacy / unused by these two cards:
+
+- `Waves_AR_Prepared.glb`
+- `Meshy_AI__buzzcut_texture.glb` / `Meshy_AI_buzzcut_texture.glb` (older buzz names)
+- `Meshy_AI_Slicked_Back_texture.glb`
+- `Meshy_AI_Long_Wavy_Hair_AR_texture.glb`
 - `wavy_black_wig.glb`
 
 ## Live 3D AR pipeline
 
-1. Tap a hairstyle → 2D fallback shows while GLB loads (camera stays on).
-2. On successful load → transparent SceneView draws the wig over the live camera.
-3. Every MediaPipe frame → HeadPoseEstimator → ModelNode transform.
-4. On load failure/timeout → stays on 2D fallback only.
+1. Tap a hairstyle → previous ModelNode is disposed; only the selected GLB loads.
+2. Transparent SceneView draws the wig over the live camera.
+3. MediaPipe → HeadPoseEstimator → ModelNode (+ per-asset local fit).
+4. Boy Cut / Curtains: face cutout disabled (real camera face stays visible).
 
 Logcat tag: `ArTryOnOverlay`

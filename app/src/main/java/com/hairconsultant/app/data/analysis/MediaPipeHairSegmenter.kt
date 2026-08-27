@@ -121,19 +121,23 @@ private fun resolveHairClass(segmenter: ImageSegmenter): Int {
 
 private fun ImageSegmenterResult.toHairMask(hairClass: Int): HairMask? {
     val image = categoryMask().orElse(null) ?: return null
-    val buffer = ByteBufferExtractor.extract(image)
+    val buffer = runCatching { ByteBufferExtractor.extract(image) }.getOrNull() ?: return null
     buffer.rewind()
-    val bytes = ByteArray(buffer.remaining())
+    val remaining = buffer.remaining().coerceAtLeast(0)
+    if (remaining <= 0 || image.width <= 0 || image.height <= 0) return null
+    val bytes = ByteArray(remaining)
     buffer.get(bytes)
-    if (bytes.isEmpty() || image.width <= 0 || image.height <= 0) return null
 
     // Soft, per-pixel confidence for the hair class (when requested) instead of the binary
     // category mask, so the silhouette edge can fade out at the hairline rather than cut hard.
     val confidence = confidenceMasks().orElse(null)?.getOrNull(hairClass)?.let { hairConfidence ->
         runCatching {
             val confBuffer = ByteBufferExtractor.extract(hairConfidence, MPImage.IMAGE_FORMAT_ALPHA)
+                ?: return@runCatching null
             confBuffer.rewind()
-            ByteArray(confBuffer.remaining()).also { confBuffer.get(it) }
+            val confRemaining = confBuffer.remaining().coerceAtLeast(0)
+            if (confRemaining <= 0) return@runCatching null
+            ByteArray(confRemaining).also { confBuffer.get(it) }
         }.getOrNull()
     }
 
