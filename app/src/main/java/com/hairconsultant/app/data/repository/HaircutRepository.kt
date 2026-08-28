@@ -83,7 +83,10 @@ private fun applyThumbCatalogPatches(haircuts: List<Haircut>): List<Haircut> {
     if (patches.isEmpty()) return haircuts
     return haircuts.map { haircut ->
         val patch = patches[haircut.id] ?: return@map haircut
-        haircut.copy(imageUrl = patch.imageUrl)
+        haircut.copy(
+            name = patch.name,
+            imageUrl = patch.imageUrl
+        )
     }
 }
 
