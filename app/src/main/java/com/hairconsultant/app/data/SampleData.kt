@@ -44,6 +44,33 @@ object SampleData {
         "LONG_WAVY_1" // Long Wavy Hair (thumbnail/name; enable AR in HairstyleArCatalog.DEDICATED_GLB_IDS)
     )
 
+    /** New catalog cards added with local drawable thumbnails (merged on refresh). */
+    val NEW_CATALOG_IDS: Set<String> = setOf(
+        "SHORT_STRAIGHT_6", // Short Bob
+        "SHORT_STRAIGHT_7", // Modern Pompadour
+        "SHORT_STRAIGHT_8", // Undercut
+        "SHORT_STRAIGHT_9", // French Crop
+        "SHORT_STRAIGHT_10", // Classic
+        "SHORT_STRAIGHT_11", // Textured Pixie
+        "MEDIUM_STRAIGHT_7", // Slicked Back
+        "MEDIUM_STRAIGHT_8", // Side Bangs
+        "MEDIUM_WAVY_6", // Medium Layered
+        "MEDIUM_WAVY_7", // Medium Modern Mullet
+        "MEDIUM_WAVY_8", // Curtains with Layer
+        "LONG_STRAIGHT_6", // Long Bob
+        "LONG_WAVY_7", // Shaggy Wolfcut
+        "LONG_WAVY_8" // Long Layered Side
+    )
+
+    /**
+     * Styles shown for both Male and Female filters (UNISEX in [HaircutGenderStyle]).
+     * Patched on refresh so Firestore/local DB stay in sync with SampleData.
+     */
+    val GENDER_UNISEX_PATCH_IDS: Set<String> = setOf(
+        "SHORT_STRAIGHT_1", // Curtains
+        "MEDIUM_STRAIGHT_8" // Side Bangs
+    )
+
     private const val PKG = "com.hairconsultant.app"
     private val THUMB_BOY_CUT =
         "android.resource://$PKG/drawable/thumb_buzz_cut"
@@ -51,6 +78,69 @@ object SampleData {
         "android.resource://$PKG/drawable/thumb_curtains"
     private val THUMB_LONG_WAVY =
         "android.resource://$PKG/drawable/thumb_long_wavy"
+    private val THUMB_SHAGGY_WOLFCUT =
+        "android.resource://$PKG/drawable/thumb_shaggy_wolfcut"
+    private val THUMB_LONG_LAYERED_SIDE =
+        "android.resource://$PKG/drawable/thumb_long_layered_side"
+    private val THUMB_SHORT_BOB =
+        "android.resource://$PKG/drawable/thumb_short_bob"
+    private val THUMB_SLICKED_BACK =
+        "android.resource://$PKG/drawable/thumb_slicked_back"
+    private val THUMB_MEDIUM_LAYERED =
+        "android.resource://$PKG/drawable/thumb_medium_layered"
+    private val THUMB_MODERN_POMPADOUR =
+        "android.resource://$PKG/drawable/thumb_modern_pompadour"
+    private val THUMB_UNDERCUT =
+        "android.resource://$PKG/drawable/thumb_undercut"
+    private val THUMB_FRENCH_CROP =
+        "android.resource://$PKG/drawable/thumb_french_crop"
+    private val THUMB_CLASSIC =
+        "android.resource://$PKG/drawable/thumb_classic"
+    private val THUMB_SIDE_BANGS =
+        "android.resource://$PKG/drawable/thumb_side_bangs"
+    private val THUMB_MEDIUM_MODERN_MULLET =
+        "android.resource://$PKG/drawable/thumb_medium_modern_mullet"
+    private val THUMB_CURTAINS_WITH_LAYER =
+        "android.resource://$PKG/drawable/thumb_curtains_with_layer"
+    private val THUMB_LONG_BOB =
+        "android.resource://$PKG/drawable/thumb_long_bob"
+    private val THUMB_SHORT_FEATHERED_SHAG =
+        "android.resource://$PKG/drawable/thumb_short_feathered_shag"
+    private val THUMB_WAVY_BOB_SIDE_BANGS =
+        "android.resource://$PKG/drawable/thumb_wavy_bob_side_bangs"
+    private val THUMB_WAVY_PIXIE =
+        "android.resource://$PKG/drawable/thumb_wavy_pixie"
+    private val THUMB_WAVY_SHAG =
+        "android.resource://$PKG/drawable/thumb_wavy_shag"
+    private val THUMB_CURLY_BIXIE =
+        "android.resource://$PKG/drawable/thumb_curly_bixie"
+    private val THUMB_UNDERCUT_CROP_LENGTH_TOP =
+        "android.resource://$PKG/drawable/thumb_undercut_crop_length_top"
+    private val THUMB_WAVY_FRINGE_CROP =
+        "android.resource://$PKG/drawable/thumb_wavy_fringe_crop"
+    private val THUMB_TEXTURED_QUIFF =
+        "android.resource://$PKG/drawable/thumb_textured_quiff"
+    private val THUMB_CLASSIC_BLUNT_BOB =
+        "android.resource://$PKG/drawable/thumb_classic_blunt_bob"
+    private val THUMB_SIDE_SWEPT_FRINGE_CROP =
+        "android.resource://$PKG/drawable/thumb_side_swept_fringe_crop"
+    private val THUMB_TEXTURED_PIXIE =
+        "android.resource://$PKG/drawable/thumb_textured_pixie"
+
+    /** Catalog IDs whose thumbnail was corrected from provided reference images. */
+    val THUMB_PATCH_IDS: Set<String> = setOf(
+        "SHORT_STRAIGHT_2", // Side-Swept Fringe Crop
+        "SHORT_STRAIGHT_3", // Short Feathered Shag
+        "SHORT_STRAIGHT_4", // Undercut Crop with Length on Top
+        "SHORT_STRAIGHT_6", // Short Bob (Classic Blunt Bob image)
+        "SHORT_STRAIGHT_11", // Textured Pixie
+        "SHORT_WAVY_0", // Wavy Pixie
+        "SHORT_WAVY_1", // Wavy Bob with Side Bangs
+        "SHORT_WAVY_3", // Wavy Shag
+        "SHORT_WAVY_4", // Wavy Fringe Crop
+        "SHORT_WAVY_5", // Textured Quiff
+        "SHORT_CURLY_0" // Bixie (Curly Bixie image)
+    )
 
     private val catalog: Map<Pair<HairLength, HairTexture>, List<Seed>> = mapOf(
         (HairLength.SHORT to HairTexture.STRAIGHT) to listOf(
@@ -69,34 +159,74 @@ object SampleData {
             Seed(
                 "Side-Swept Fringe Crop", listOf(ROUND, HEART, DIAMOND),
                 "An asymmetrical side fringe breaks up a round face's soft curves and disguises a heart or diamond face's wider forehead with soft coverage.",
-                genderStyle = UNISEX
+                genderStyle = UNISEX,
+                imageUrl = THUMB_SIDE_SWEPT_FRINGE_CROP
             ),
             Seed(
                 "Short Feathered Shag", listOf(ROUND, SQUARE),
                 "Feathered layers build height at the crown to elongate a round face, and the soft, ragged ends blur a square jawline's hard corners.",
-                genderStyle = UNISEX
+                genderStyle = UNISEX,
+                imageUrl = THUMB_SHORT_FEATHERED_SHAG
             ),
             Seed(
                 "Undercut Crop with Length on Top", listOf(OVAL, ROUND, DIAMOND),
                 "Extra length and volume on top draws the eye upward, elongating round proportions and balancing a diamond face's wide cheekbones; clean on an oval face too.",
-                genderStyle = MASCULINE
+                genderStyle = MASCULINE,
+                imageUrl = THUMB_UNDERCUT_CROP_LENGTH_TOP
             ),
             Seed(
                 "Crew Cut", listOf(ROUND, OVAL),
                 "Tight sides with slightly longer hair on top add subtle height at the crown, elongating round proportions, while an oval face carries the clean, classic taper with ease.",
                 genderStyle = MASCULINE
+            ),
+            Seed(
+                "Short Bob", listOf(OVAL, HEART, DIAMOND),
+                "A chin-grazing bob adds soft width at the jaw to balance a heart or diamond face, while an oval face wears the clean, blunt silhouette with ease.",
+                genderStyle = FEMININE,
+                imageUrl = THUMB_CLASSIC_BLUNT_BOB
+            ),
+            Seed(
+                "Modern Pompadour", listOf(OVAL, ROUND, SQUARE),
+                "Volume swept up and back adds height at the crown to elongate round proportions and softens a square jaw, while an oval face suits the polished, structured shape.",
+                genderStyle = MASCULINE,
+                imageUrl = THUMB_MODERN_POMPADOUR
+            ),
+            Seed(
+                "Undercut", listOf(OVAL, SQUARE, DIAMOND),
+                "Short, faded sides keep width in check while longer length on top adds balance for a diamond face and softens a square jawline's hard corners.",
+                genderStyle = MASCULINE,
+                imageUrl = THUMB_UNDERCUT
+            ),
+            Seed(
+                "French Crop", listOf(ROUND, SQUARE, HEART),
+                "A textured fringe and short crop add forward coverage that softens a heart face's wider forehead while keeping round and square outlines clean and compact.",
+                genderStyle = MASCULINE,
+                imageUrl = THUMB_FRENCH_CROP
+            ),
+            Seed(
+                "Classic", listOf(OVAL, SQUARE, HEART),
+                "A timeless short side-parted cut keeps the silhouette neat and balanced on an oval face, softens a square jaw, and stays proportional on a heart shape.",
+                genderStyle = MASCULINE,
+                imageUrl = THUMB_CLASSIC
+            ),
+            Seed(
+                "Textured Pixie", listOf(SQUARE, HEART, DIAMOND),
+                "Choppy, piece-y layers soften a square jaw, while the side-swept fringe covers a wide forehead — flattering on heart and diamond shapes too.",
+                imageUrl = THUMB_TEXTURED_PIXIE
             )
         ),
         (HairLength.SHORT to HairTexture.WAVY) to listOf(
             Seed(
                 "Wavy Pixie", listOf(SQUARE, HEART),
                 "Natural wave texture softens a square jaw's sharp corners, and a wispy, wave-swept fringe minimizes a heart face's broader forehead.",
-                genderStyle = FEMININE
+                genderStyle = FEMININE,
+                imageUrl = THUMB_WAVY_PIXIE
             ),
             Seed(
                 "Wavy Bob with Side Bangs", listOf(ROUND, OVAL),
                 "A chin-grazing wavy bob with side-swept bangs breaks up roundness with gentle asymmetry, while its soft movement flatters an oval face's natural balance.",
-                genderStyle = FEMININE
+                genderStyle = FEMININE,
+                imageUrl = THUMB_WAVY_BOB_SIDE_BANGS
             ),
             Seed(
                 "Beach Wave Crop", listOf(DIAMOND, SQUARE),
@@ -106,24 +236,28 @@ object SampleData {
             Seed(
                 "Wavy Shag", listOf(ROUND, HEART),
                 "Choppy shag layers add lift at the crown to elongate a round face, and a soft fringe keeps a heart face's wider forehead in proportion.",
-                genderStyle = UNISEX
+                genderStyle = UNISEX,
+                imageUrl = THUMB_WAVY_SHAG
             ),
             Seed(
                 "Wavy Fringe Crop", listOf(DIAMOND, HEART, OVAL),
                 "A full wavy fringe adds width at the forehead for diamond and heart shapes, while an oval face can carry the fringe without losing its balance.",
-                genderStyle = UNISEX
+                genderStyle = UNISEX,
+                imageUrl = THUMB_WAVY_FRINGE_CROP
             ),
             Seed(
                 "Textured Quiff", listOf(ROUND, SQUARE),
                 "Wave-swept hair styled up and back adds height at the crown, elongating round proportions, while tousled, textured ends soften a square jaw's hard corners.",
-                genderStyle = MASCULINE
+                genderStyle = MASCULINE,
+                imageUrl = THUMB_TEXTURED_QUIFF
             )
         ),
         (HairLength.SHORT to HairTexture.CURLY) to listOf(
             Seed(
                 "Bixie", listOf(OVAL, DIAMOND),
                 "Curl-hugging layers frame and show off the cheekbones — flattering on a diamond face's angles, while an oval face wears the fuller curl volume with ease.",
-                genderStyle = FEMININE
+                genderStyle = FEMININE,
+                imageUrl = THUMB_CURLY_BIXIE
             ),
             Seed(
                 "Curly Bob", listOf(HEART, DIAMOND),
@@ -228,6 +362,18 @@ object SampleData {
                 "Textured Crop with Length", listOf(SQUARE, DIAMOND),
                 "Longer, textured pieces on top soften a square jaw's sharp corners and add volume that balances a diamond face's narrow forehead.",
                 genderStyle = MASCULINE
+            ),
+            Seed(
+                "Slicked Back", listOf(OVAL, SQUARE, DIAMOND),
+                "Hair combed straight back keeps the silhouette sleek and reveals the face, softening a square jaw and balancing a diamond face's cheekbones on an oval outline.",
+                genderStyle = MASCULINE,
+                imageUrl = THUMB_SLICKED_BACK
+            ),
+            Seed(
+                "Side Bangs", listOf(ROUND, HEART, DIAMOND),
+                "Asymmetrical side-swept bangs break up round curves and add soft coverage across a heart or diamond face's wider forehead.",
+                genderStyle = UNISEX,
+                imageUrl = THUMB_SIDE_BANGS
             )
         ),
         (HairLength.MEDIUM to HairTexture.WAVY) to listOf(
@@ -260,6 +406,24 @@ object SampleData {
                 "Textured Side Part", listOf(OVAL, SQUARE),
                 "Wave-textured hair swept to a side part softens a square jaw's angles, while an oval face carries the classic, polished shape with ease.",
                 genderStyle = MASCULINE
+            ),
+            Seed(
+                "Medium Layered", listOf(OVAL, ROUND, HEART),
+                "Soft layers through the mid-length add movement and volume that elongate round proportions and keep a heart face's forehead in balance.",
+                genderStyle = UNISEX,
+                imageUrl = THUMB_MEDIUM_LAYERED
+            ),
+            Seed(
+                "Medium Modern Mullet", listOf(OVAL, SQUARE, DIAMOND),
+                "Shorter front and sides with longer length at the back add edge without bulk at the cheeks, softening square angles and balancing diamond cheekbones.",
+                genderStyle = MASCULINE,
+                imageUrl = THUMB_MEDIUM_MODERN_MULLET
+            ),
+            Seed(
+                "Curtains with Layer", listOf(OVAL, HEART, DIAMOND),
+                "Center-parted curtain layers frame the temples and add soft coverage for a heart or diamond face while an oval face wears the shape easily.",
+                genderStyle = UNISEX,
+                imageUrl = THUMB_CURTAINS_WITH_LAYER
             )
         ),
         (HairLength.MEDIUM to HairTexture.CURLY) to listOf(
@@ -361,6 +525,12 @@ object SampleData {
                 "Long Slicked-Back Straight", listOf(OVAL, SQUARE),
                 "Hair combed straight back off the face keeps the silhouette sleek, softening a square jaw's angles, while an oval face's balance suits the undisturbed length.",
                 genderStyle = MASCULINE
+            ),
+            Seed(
+                "Long Bob", listOf(OVAL, HEART, DIAMOND),
+                "A longer blunt bob adds width at the collarbone to balance a heart face's narrow chin or a diamond face's angular jaw, and suits an oval face's symmetry.",
+                genderStyle = FEMININE,
+                imageUrl = THUMB_LONG_BOB
             )
         ),
         (HairLength.LONG to HairTexture.WAVY) to listOf(
@@ -399,6 +569,18 @@ object SampleData {
                 "Surfer Shag", listOf(ROUND, SQUARE),
                 "Loose, layered waves left long and tousled add movement that breaks up round curves and softens square angles.",
                 genderStyle = MASCULINE
+            ),
+            Seed(
+                "Shaggy Wolfcut", listOf(OVAL, ROUND, SQUARE),
+                "Heavy shag layers and a wolf-cut silhouette add crown height to elongate a round face while softening square jaw angles; an oval face wears the shape with ease.",
+                genderStyle = UNISEX,
+                imageUrl = THUMB_SHAGGY_WOLFCUT
+            ),
+            Seed(
+                "Long Layered Side", listOf(HEART, DIAMOND, OVAL),
+                "Long side-swept layers add soft width at the jaw and temples, balancing heart and diamond proportions while framing an oval face naturally.",
+                genderStyle = FEMININE,
+                imageUrl = THUMB_LONG_LAYERED_SIDE
             )
         ),
         (HairLength.LONG to HairTexture.CURLY) to listOf(

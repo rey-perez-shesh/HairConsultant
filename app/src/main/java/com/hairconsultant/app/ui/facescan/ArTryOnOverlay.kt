@@ -125,10 +125,15 @@ fun BoxScope.ArTryOnOverlay(
             facePunch = null
             faceOcclusion?.destroy()
             faceOcclusion = null
-            modelNodeRef?.let { node -> sceneView.removeChildNode(node) }
+            modelNodeRef?.let { node -> runCatching { sceneView.removeChildNode(node) } }
             modelNodeRef = null
             modelBounds = null
             faceArAttachment.setSceneView(null)
+            runCatching {
+                sceneView.lifecycle = null
+                sceneView.destroy()
+                Log.i(TAG, "SceneView destroyed — AR overlay released")
+            }.onFailure { Log.w(TAG, "SceneView destroy failed: ${it.message}") }
         }
     }
 
@@ -199,7 +204,7 @@ fun BoxScope.ArTryOnOverlay(
             setCulling(false)
             isVisible = !AR_HIDE_GLB
             position = Position(0f, 0f, 0f)
-            rotation = Rotation(0f, 180f, 0f)
+            rotation = initialAssetRotation(assetConfig)
             scale = Scale(1f)
         }
         sceneView.addChildNode(node)
@@ -246,7 +251,7 @@ fun BoxScope.ArTryOnOverlay(
                     pose = smooth!!,
                     landmarks = frame.points,
                     mirrorX = HAIR_MIRROR_X,
-                    modelYawOffset = MODEL_YAW_OFFSET,
+                    modelYawOffset = assetConfig?.modelYawOffset ?: DEFAULT_MODEL_YAW_OFFSET,
                     modelYawSign = 1f
                 )
                 // Sharp face over SceneView (store recycles live bitmaps each detect â€” copy frame).
@@ -295,7 +300,7 @@ fun BoxScope.ArTryOnOverlay(
                     headPitch = smooth!!.pitchDeg,
                     headRoll = smooth!!.rollDeg,
                     modelYaw = applied.modelYaw,
-                    modelYawOffset = MODEL_YAW_OFFSET,
+                    modelYawOffset = applied.modelYawOffset,
                     scale = applied.scale,
                     posX = applied.posX,
                     posY = applied.posY,
@@ -445,11 +450,21 @@ private data class WigModelBounds(
 private data class AppliedHairTransform(
     val headWidthNorm: Float,
     val modelYaw: Float,
+    val modelYawOffset: Float,
     val scale: Float,
     val posX: Float,
     val posY: Float,
     val posZ: Float
 )
+
+private fun initialAssetRotation(config: HairstyleArCatalog.AssetConfig?): Rotation {
+    val yawOffset = config?.modelYawOffset ?: DEFAULT_MODEL_YAW_OFFSET
+    return Rotation(
+        config?.localRotationX ?: 0f,
+        yawOffset + (config?.localRotationY ?: 0f),
+        config?.localRotationZ ?: 0f
+    )
+}
 
 private fun applyHeadPose(
     node: ModelNode,
@@ -491,11 +506,14 @@ private fun applyHeadPose(
     )
     node.scale = Scale(scale)
 
-    // ONE asset facing correction: GLB forward is opposite SceneView camera forward.
-    val modelYaw = MODEL_YAW_OFFSET + pose.yawDeg
-    node.rotation = Rotation(pose.pitchDeg, modelYaw, pose.rollDeg)
+    // Per-asset facing + mesh correction (independent per HairstyleArCatalog.AssetConfig).
+    val yawOffset = assetConfig?.modelYawOffset ?: DEFAULT_MODEL_YAW_OFFSET
+    val pitch = pose.pitchDeg + (assetConfig?.localRotationX ?: 0f)
+    val yaw = yawOffset + pose.yawDeg + (assetConfig?.localRotationY ?: 0f)
+    val roll = pose.rollDeg + (assetConfig?.localRotationZ ?: 0f)
+    node.rotation = Rotation(pitch, yaw, roll)
 
-    return AppliedHairTransform(headWidthNorm, modelYaw, scale, posX, posY, posZ)
+    return AppliedHairTransform(headWidthNorm, yaw, yawOffset, scale, posX, posY, posZ)
 }
 
 /**
@@ -550,10 +568,10 @@ private const val CROWN_VERTICAL_OFFSET = 0.08f
 private const val HAIR_MIRROR_X = true
 
 /**
- * Single asset facing correction (degrees). GLB forward faces opposite the SceneView camera,
- * so frontal headYawâ‰ˆ0 requires modelYawâ‰ˆ180. Do not add 180 anywhere else.
+ * Default facing correction when no [HairstyleArCatalog.AssetConfig] is resolved.
+ * Boy Cut and legacy Meshy exports use 180°; per-asset overrides live in AssetConfig.
  */
-private const val MODEL_YAW_OFFSET = 180f
+private const val DEFAULT_MODEL_YAW_OFFSET = 180f
 
 /** Typical normalized cheek span (diagnosis / ratio base). Live scale uses measured head width. */
 private const val HAIR_REFERENCE_WIDTH = 0.34f

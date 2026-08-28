@@ -13,6 +13,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -20,13 +21,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.hairconsultant.app.domain.model.Haircut
+import com.hairconsultant.app.ui.facescan.HairstyleArCatalog
 
 /**
- * Quick-look preview shown when a haircut card is tapped while just browsing. "Try It On" is the
- * only path into the live camera filter — closes this preview and hands off to that separate flow.
+ * Quick-look preview shown when a haircut card is tapped while just browsing.
+ * "Try This Hairstyle" opens the existing GLB AR try-on when mapped in [HairstyleArCatalog].
  */
 @Composable
 fun HaircutDetailDialog(haircut: Haircut, onDismiss: () -> Unit, onTryOn: () -> Unit) {
+    val hasArGlb = HairstyleArCatalog.hasDedicatedGlb(haircut)
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -55,10 +58,19 @@ fun HaircutDetailDialog(haircut: Haircut, onDismiss: () -> Unit, onTryOn: () -> 
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             TextButton(onClick = onDismiss) { Text("Close") }
-                            Button(onClick = onTryOn) { Text("Try It On") }
+                            if (hasArGlb) {
+                                Button(onClick = onTryOn) { Text("Try This Hairstyle") }
+                            } else {
+                                Text(
+                                    text = "AR Preview Coming Soon",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }

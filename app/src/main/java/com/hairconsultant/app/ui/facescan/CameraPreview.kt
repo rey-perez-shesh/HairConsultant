@@ -47,12 +47,14 @@ fun CameraPreview(
 
     DisposableEffect(lifecycleOwner, landmarker, hairSegmenter, faceArAttachment) {
         onDispose {
-            runCatching { ProcessCameraProvider.getInstance(context).get().unbindAll() }
-            landmarker.close()
-            hairSegmenter.close()
-            analysisExecutor.shutdown()
+            runCatching { landmarker.close() }
+            runCatching { hairSegmenter.close() }
             landmarkStore.publishEmpty()
             faceArAttachment?.setSceneView(null)
+            runCatching {
+                ProcessCameraProvider.getInstance(context.applicationContext).get().unbindAll()
+            }
+            analysisExecutor.shutdownNow()
         }
     }
 

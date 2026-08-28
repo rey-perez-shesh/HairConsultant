@@ -90,26 +90,40 @@ object HairMaterialTint {
         val b = preset.b
 
         val okSrgb = runCatching {
-            if (preset == HairColorPreset.NATURAL) {
-                mat.setParameter("baseColorIndex", 0)
-                mat.setParameter("baseColorFactor", Colors.RgbaType.SRGB, 1f, 1f, 1f, 1f)
-            } else {
-                // Selected color as albedo; keep metallicRoughness / lighting.
-                // Baked baseColorTexture fights recoloring if left enabled.
-                mat.setParameter("baseColorIndex", -1)
-                mat.setParameter("baseColorFactor", Colors.RgbaType.SRGB, r, g, b, 1f)
+            when (preset) {
+                HairColorPreset.NATURAL -> {
+                    mat.setParameter("baseColorIndex", 0)
+                    mat.setParameter("baseColorFactor", Colors.RgbaType.SRGB, 1f, 1f, 1f, 1f)
+                }
+                HairColorPreset.BLACK -> {
+                    // Meshy albedo is mid-gray; texture multiply (index 0) stays washed out.
+                    // Solid near-black tint keeps roughness/normal/specular for strand highlights.
+                    mat.setParameter("baseColorIndex", -1)
+                    mat.setParameter("baseColorFactor", Colors.RgbaType.SRGB, r, g, b, 1f)
+                }
+                else -> {
+                    mat.setParameter("baseColorIndex", -1)
+                    mat.setParameter("baseColorFactor", Colors.RgbaType.SRGB, r, g, b, 1f)
+                }
             }
         }.onFailure { Log.w(TAG, "SRGB setParameter failed: ${it.message}") }.isSuccess
 
         if (okSrgb) return true
 
         return runCatching {
-            if (preset == HairColorPreset.NATURAL) {
-                mat.setBaseColorIndex(0)
-                mat.setBaseColorFactor(colorOf(1f, 1f, 1f, 1f))
-            } else {
-                mat.setBaseColorIndex(-1)
-                mat.setBaseColorFactor(colorOf(r, g, b, 1f))
+            when (preset) {
+                HairColorPreset.NATURAL -> {
+                    mat.setBaseColorIndex(0)
+                    mat.setBaseColorFactor(colorOf(1f, 1f, 1f, 1f))
+                }
+                HairColorPreset.BLACK -> {
+                    mat.setBaseColorIndex(-1)
+                    mat.setBaseColorFactor(colorOf(r, g, b, 1f))
+                }
+                else -> {
+                    mat.setBaseColorIndex(-1)
+                    mat.setBaseColorFactor(colorOf(r, g, b, 1f))
+                }
             }
         }.onFailure { Log.w(TAG, "SceneView tint fallback failed: ${it.message}") }.isSuccess
     }

@@ -12,7 +12,7 @@ enum class HairColorPreset(
 ) {
     /** Restores authored baseColorTexture. */
     NATURAL("Natural", 1f, 1f, 1f),
-    BLACK("Black", 0.08f, 0.07f, 0.07f),
+    BLACK("Black", 0.0118f, 0.0118f, 0.0118f),
     DARK_BROWN("Dark Brown", 0.28f, 0.15f, 0.08f),
     LIGHT_BROWN("Light Brown", 0.62f, 0.40f, 0.22f),
     BLONDE("Blonde", 0.95f, 0.82f, 0.52f),
