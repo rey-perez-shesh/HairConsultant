@@ -100,7 +100,8 @@ fun CameraTryOnScreen(haircut: Haircut, onClose: () -> Unit) {
 
 /**
  * Same compositing stack as Face Scan try-on:
- * PreviewView â†’ hair cover â†’ SceneView (selected GLB) â†’ hair color strip.
+ * PreviewView → background blur → hair cover → SceneView (GLB) → face punch-through.
+ * Hair mask and background blur are active automatically when try-on opens.
  */
 @Composable
 private fun CatalogGlbArTryOn(haircut: Haircut) {
@@ -111,7 +112,8 @@ private fun CatalogGlbArTryOn(haircut: Haircut) {
     Box(modifier = Modifier.fillMaxSize()) {
         CameraPreview(
             landmarkStore = landmarkStore,
-            hairRemovalEnabled = false,
+            hairRemovalEnabled = true,
+            backgroundBlurEnabled = true,
             suppressOverlayDrawing = true,
             faceArAttachment = faceArAttachment,
             modifier = Modifier.fillMaxSize()

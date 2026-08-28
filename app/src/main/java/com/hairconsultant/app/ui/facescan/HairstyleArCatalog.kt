@@ -69,7 +69,7 @@ object HairstyleArCatalog {
     private val CURTAINS_FIT = AssetConfig(
         modelAsset = "wigs/Meshy_AI_curtains.glb",
         localScaleMul = 0.68f,
-        localOffsetY = -0.08f,
+        localOffsetY = -0.03f,
         localOffsetZ = 0.02f,
         modelYawOffset = 0f,
         alignCrownToMaxY = true,

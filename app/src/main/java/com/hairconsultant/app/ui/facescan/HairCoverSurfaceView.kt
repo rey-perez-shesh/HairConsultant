@@ -128,7 +128,7 @@ class HairCoverSurfaceView @JvmOverloads constructor(
                         cachedScalpColor = HairRemover.estimateScalpColor(source, mask)
                     }
                 }
-                HairRemover.tryOnSoftCover(soft, cachedScalpColor)
+                HairRemover.tryOnSoftCover(soft, source, cachedScalpColor)
             }
         }
         if (previous != null && previous !== coverBitmap && !previous.isRecycled) {

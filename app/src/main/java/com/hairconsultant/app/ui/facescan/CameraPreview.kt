@@ -26,12 +26,14 @@ import java.util.concurrent.Executors
 /**
  * Full-screen live front-camera feed with MediaPipe face mesh + hair mask.
  *
- * Try-on stack: PreviewView (normal camera) → SceneView (GLB via [FaceArSceneAttachment]).
+ * Try-on stack (bottom → top):
+ * PreviewView → background blur → hair cover → SceneView (GLB) → face punch-through.
  */
 @Composable
 fun CameraPreview(
     landmarkStore: FaceLandmarkStore,
     hairRemovalEnabled: Boolean = false,
+    backgroundBlurEnabled: Boolean = false,
     suppressOverlayDrawing: Boolean = false,
     faceArAttachment: FaceArSceneAttachment? = null,
     modifier: Modifier = Modifier
@@ -72,6 +74,20 @@ fun CameraPreview(
                     FrameLayout.LayoutParams.MATCH_PARENT
                 )
             }
+            val backgroundBlurView = BackgroundBlurSurfaceView(ctx).apply {
+                tag = BackgroundBlurSurfaceView.VIEW_TAG
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
+            val hairCoverView = HairCoverSurfaceView(ctx).apply {
+                tag = HairCoverSurfaceView.VIEW_TAG
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
             val overlayView = FaceLandmarkOverlayView(ctx).apply {
                 layoutParams = FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
@@ -80,6 +96,8 @@ fun CameraPreview(
             }
             val root = FrameLayout(ctx).apply {
                 addView(previewView)
+                addView(backgroundBlurView)
+                addView(hairCoverView)
                 addView(overlayView)
             }
             faceArAttachment?.bindFrameLayout(root)
@@ -123,13 +141,29 @@ fun CameraPreview(
                     root.bringChildToFront(sv)
                 }
             }
+            val previewBitmap = landmarkStore.peekPreviewBitmap()
+            val backgroundBlurView = root.findViewWithTag<BackgroundBlurSurfaceView>(
+                BackgroundBlurSurfaceView.VIEW_TAG
+            )
+            backgroundBlurView?.apply {
+                setBlurEnabled(backgroundBlurEnabled && overlayFrame.faceDetected)
+                updateFrame(overlayFrame, previewBitmap)
+            }
+            val hairCoverView = root.findViewWithTag<HairCoverSurfaceView>(
+                HairCoverSurfaceView.VIEW_TAG
+            )
+            hairCoverView?.apply {
+                // Apply hair cover only when segmentation data is available (graceful fallback).
+                setCoverEnabled(hairRemovalEnabled && overlayFrame.hairMask != null)
+                updateFrame(overlayFrame, previewBitmap)
+            }
             val overlayView = (0 until root.childCount).firstNotNullOfOrNull { i ->
                 root.getChildAt(i) as? FaceLandmarkOverlayView
             }
             overlayView?.apply {
                 visibility = if (suppressOverlayDrawing) View.GONE else View.VISIBLE
                 if (!suppressOverlayDrawing) {
-                    setBlurSource(landmarkStore.peekPreviewBitmap())
+                    setBlurSource(previewBitmap)
                     setHairRemovalEnabled(hairRemovalEnabled)
                     setFrame(overlayFrame)
                 }

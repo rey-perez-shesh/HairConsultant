@@ -59,7 +59,8 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
         if (cameraPermissionState.status.isGranted) {
             CameraPreview(
                 landmarkStore = viewModel.landmarkStore,
-                hairRemovalEnabled = false,
+                hairRemovalEnabled = uiState.triedOnHaircut != null,
+                backgroundBlurEnabled = uiState.triedOnHaircut != null,
                 suppressOverlayDrawing = uiState.triedOnHaircut != null,
                 faceArAttachment = faceArAttachment,
                 modifier = Modifier.fillMaxSize()

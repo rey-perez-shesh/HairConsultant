@@ -105,7 +105,7 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
                         cachedScalpColor = HairRemover.estimateScalpColor(source, mask)
                     }
                 }
-                HairRemover.tryOnSoftCover(soft, cachedScalpColor)
+                HairRemover.tryOnSoftCover(soft, source, cachedScalpColor)
             }
             frame.estimatedHairLength == HairLength.BALD -> null
             else -> mask.toOverlayBitmap()

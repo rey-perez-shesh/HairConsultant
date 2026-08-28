@@ -9,18 +9,19 @@ import android.graphics.Rect
 /**
  * Soft hair replacement cover for live AR try-on.
  *
- * Uses a refined [SoftHairMask] (hair region only — face cleared) and paints a
- * feathered skin-tone veil so real hair is reduced under the Blender GLB.
- * Does not draw a giant solid plate over the head/face.
+ * Uses a refined [SoftHairMask] (hair region only — face cleared) and suppresses
+ * real hair via darkened camera pixels, not a flat scalp-colored plate.
  */
 object HairRemover {
 
     /**
-     * Soft cover from [soft] alphas. Peak alpha is capped so edges feather and
-     * the result never reads as a hard gray rectangle.
+     * Suppresses segmented hair using the live camera frame where available.
+     * Darkens/desaturates source pixels inside the hair mask so strands disappear
+     * naturally; GLB renders above this layer.
      */
     fun tryOnSoftCover(
         soft: SoftHairMask,
+        source: Bitmap? = null,
         scalpColor: Int = Color.rgb(205, 170, 145)
     ): Bitmap {
         val outW = soft.width
@@ -32,10 +33,44 @@ object HairRemover {
         val sg = Color.green(scalpColor)
         val sb = Color.blue(scalpColor)
         val pixels = IntArray(outW * outH)
+        val hasSource = source != null && !source.isRecycled
+
         for (i in soft.alpha.indices) {
             val a = soft.alphaAt(i)
             if (a <= 0) continue
-            pixels[i] = Color.argb(a, sr, sg, sb)
+            val t = a / 255f
+            val x = i % outW
+            val y = i / outW
+
+            if (hasSource) {
+                val sx = (x * source!!.width / outW).coerceIn(0, source.width - 1)
+                val sy = (y * source.height / outH).coerceIn(0, source.height - 1)
+                val src = source.getPixel(sx, sy)
+                var r = Color.red(src)
+                var g = Color.green(src)
+                var b = Color.blue(src)
+                val lum = (r + g + b) / 3f
+                // Strong suppression in hair core; fringe keeps subtle source texture.
+                val suppress = (0.25f + 0.55f * t * t).coerceIn(0f, 0.82f)
+                r = (r * (1f - suppress) + lum * 0.08f).toInt()
+                g = (g * (1f - suppress) + lum * 0.08f).toInt()
+                b = (b * (1f - suppress) + lum * 0.08f).toInt()
+                // Soft scalp tint only on low-confidence fringe edges.
+                val edge = (1f - t).coerceIn(0f, 1f) * 0.28f
+                if (edge > 0.01f) {
+                    r = (r * (1f - edge) + sr * edge).toInt()
+                    g = (g * (1f - edge) + sg * edge).toInt()
+                    b = (b * (1f - edge) + sb * edge).toInt()
+                }
+                pixels[i] = Color.argb(
+                    a,
+                    r.coerceIn(0, 255),
+                    g.coerceIn(0, 255),
+                    b.coerceIn(0, 255)
+                )
+            } else {
+                pixels[i] = Color.argb(a, sr, sg, sb)
+            }
         }
         return Bitmap.createBitmap(pixels, outW, outH, Bitmap.Config.ARGB_8888)
     }
@@ -49,7 +84,7 @@ object HairRemover {
         scalpColor: Int = Color.rgb(205, 170, 145)
     ): Bitmap {
         val soft = HairMaskRefiner.refineForTryOn(mask, emptyList())
-        return tryOnSoftCover(soft, scalpColor)
+        return tryOnSoftCover(soft, source, scalpColor)
     }
 
     fun estimateScalpColor(source: Bitmap, mask: HairMask): Int {
@@ -90,8 +125,7 @@ object HairRemover {
     fun softBlurVeil(mask: HairMask, alpha: Int = 160): Bitmap {
         val soft = HairMaskRefiner.refineForTryOn(mask, emptyList())
         val color = Color.rgb(48, 42, 40)
-        return tryOnSoftCover(soft, color).also { bmp ->
-            // Cap veil strength via alpha rescale if needed — tryOnSoftCover already soft.
+        return tryOnSoftCover(soft, null, color).also {
             if (alpha < 160) {
                 // leave as-is; soft mask already capped
             }
@@ -104,7 +138,7 @@ object HairRemover {
 
     fun removeHair(source: Bitmap, mask: HairMask, passes: Int = 3): Bitmap {
         val soft = HairMaskRefiner.refineForTryOn(mask, emptyList())
-        val overlay = tryOnSoftCover(soft)
+        val overlay = tryOnSoftCover(soft, source)
         val result = source.copy(source.config ?: Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(result)
         val paint = Paint(Paint.FILTER_BITMAP_FLAG)
