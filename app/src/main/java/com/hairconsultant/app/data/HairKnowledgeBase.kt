@@ -26,7 +26,8 @@ object HairKnowledgeBase {
           curtain bangs) and at the jaw (soft waves/layers), while avoiding styles that add more
           width at the cheekbone line (e.g. slicked-back, ear-exposing cuts).
 
-        HAIR TYPE / TEXTURE GUIDE (Andre Walker system, 1-4 with A/B/C sub-types for pattern size)
+        HAIR TYPE / TEXTURE GUIDE (Andre Walker system types 1-3, with A/B/C sub-types for pattern
+        size; this app does not have a separate Coily/Type-4 category)
         - Type 1 (Straight): no natural curl pattern. Shows sharp, clean lines well; tends to look
           flat at the crown without layers or a blunt cut for visual weight. Gets oily faster since
           scalp oil travels the length easily.
@@ -37,13 +38,9 @@ object HairKnowledgeBase {
           width or tighter (3C). Curls shrink hair's visible length, add natural volume/width, and
           need extra moisture — curly hair is drier by nature since scalp oil struggles to travel
           down the curl's bends. Cutting dry, curl-by-curl, avoids cutting the shape too short.
-        - Type 4 (Coily, A-C): tight coils to a Z-pattern with minimal visible pattern (4C) when
-          not stretched. The most fragile and driest texture with the highest shrinkage (a coil can
-          look far shorter than its stretched length); benefits most from low-manipulation styles
-          (twist-outs, braid-outs, tapered crops) and consistent moisture/sealing.
-        General cutting note: curly and coily hair (types 3-4) is best cut dry on its natural,
-        defined pattern — cutting it wet stretches the strand and can remove more shape than
-        intended once it dries and shrinks back.
+        General cutting note: curly hair (type 3) is best cut dry on its natural, defined pattern —
+        cutting it wet stretches the strand and can remove more shape than intended once it dries
+        and shrinks back.
 
         CHEMICAL TREATMENTS
         - Rebonding: a permanent chemical straightening process (a relaxing cream loosens the

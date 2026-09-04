@@ -145,7 +145,7 @@ class GeminiChatRepositoryImpl(
               context, if one is given — never invent a style name that isn't listed there.
             - Ground every recommendation or answer in the reference knowledge above: name the
               specific mechanism (e.g. "adds width at the jaw", "needs extra moisture because
-              coily hair is driest") rather than giving a generic compliment.
+              tightly-curled hair is driest") rather than giving a generic compliment.
             - If the context doesn't yet include a confirmed face shape, hair texture, or length
               and the user's question depends on one, ask a short clarifying question instead of
               guessing.

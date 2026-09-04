@@ -30,7 +30,7 @@ object HairAppearanceClassifier {
         if (samples.size < MIN_HAIR_PIXELS) return null
 
         val color = classifyColor(samples)
-        val texture = classifyTexture(bitmap, mask, samples.size)
+        val texture = classifyTexture(bitmap, mask)
         return HairAppearanceClassification(
             texture = texture.first,
             textureConfidence = texture.second,
@@ -103,8 +103,7 @@ object HairAppearanceClassifier {
 
     private fun classifyTexture(
         bitmap: Bitmap,
-        mask: HairMask,
-        hairPixelCount: Int
+        mask: HairMask
     ): Pair<HairTexture, Float> {
         val grid = Array(mask.height) { IntArray(mask.width) { -1 } }
         var minY = mask.height
@@ -153,19 +152,16 @@ object HairAppearanceClassifier {
 
         val avgEdge = edgeEnergy / edgeCount
         val avgChanges = signChanges / rowCount.toFloat()
-        val density = hairPixelCount / ((maxX - minX + 1) * (maxY - minY + 1).toFloat()).coerceAtLeast(1f)
 
         val texture = when {
-            avgChanges < 8f && avgEdge < 22f -> HairTexture.STRAIGHT
-            avgChanges < 16f && avgEdge < 40f -> HairTexture.WAVY
-            avgChanges < 28f || density > 0.60f -> HairTexture.CURLY
-            else -> HairTexture.COILY
+            avgChanges < 2.5f && avgEdge < 14f -> HairTexture.STRAIGHT
+            avgChanges < 6f && avgEdge < 24f -> HairTexture.WAVY
+            else -> HairTexture.CURLY
         }
         val confidence = when (texture) {
             HairTexture.STRAIGHT -> (0.55f + (8f - avgChanges).coerceAtLeast(0f) * 0.02f)
             HairTexture.WAVY -> 0.58f
-            HairTexture.CURLY -> (0.55f + (avgChanges - 16f).coerceAtLeast(0f) * 0.01f)
-            HairTexture.COILY -> (0.55f + (avgChanges - 28f).coerceAtLeast(0f) * 0.01f)
+            HairTexture.CURLY -> (0.55f + (avgChanges - 6f).coerceAtLeast(0f) * 0.02f)
         }.coerceIn(0.45f, 0.78f)
         return texture to confidence
     }

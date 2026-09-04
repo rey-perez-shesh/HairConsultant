@@ -17,8 +17,7 @@ enum class HairLength(val displayName: String) {
 enum class HairTexture(val displayName: String) {
     STRAIGHT("Straight"),
     WAVY("Wavy"),
-    CURLY("Curly"),
-    COILY("Coily")
+    CURLY("Curly")
 }
 
 enum class HairColor(val displayName: String) {

@@ -425,43 +425,6 @@ object SampleData {
                 genderStyle = MASCULINE
             )
         ),
-        (HairLength.SHORT to HairTexture.COILY) to listOf(
-            Seed(
-                "Tapered Coily Crop (TWA)", listOf(ROUND, OVAL),
-                "Tapered sides keep width in check while a fuller top adds vertical height — a classic way to elongate a round face; an oval face wears the clean taper effortlessly.",
-                genderStyle = UNISEX
-            ),
-            Seed(
-                "Coily Fringe Crop", listOf(DIAMOND, HEART),
-                "A soft coily fringe fills out the forehead, balancing a diamond face's narrow brow and a heart face's wider one.",
-                genderStyle = UNISEX
-            ),
-            Seed(
-                "Twist-Out Bob", listOf(HEART, DIAMOND),
-                "Defined twist-outs styled into a jaw-grazing shape add fullness exactly where heart and diamond faces need it most — right at the chin.",
-                genderStyle = FEMININE
-            ),
-            Seed(
-                "Coily Shag with Undercut Sides", listOf(SQUARE, ROUND),
-                "Closely tapered sides pull width away from the jaw and cheeks, while shaggy layers on top soften square angles and lift round proportions.",
-                genderStyle = MASCULINE
-            ),
-            Seed(
-                "Natural Coily Crop", listOf(OVAL, SQUARE),
-                "An evenly rounded silhouette of natural coils softens a square jawline's sharp corners, and an oval face carries the fuller shape with natural balance.",
-                genderStyle = UNISEX
-            ),
-            Seed(
-                "High-Top Fade", listOf(ROUND, DIAMOND),
-                "Height built up on top elongates round proportions and balances diamond cheekbones, while the tightly faded sides keep the silhouette clean.",
-                genderStyle = MASCULINE
-            ),
-            Seed(
-                "Wash-and-Go Coily Pixie", listOf(OVAL, HEART),
-                "A cropped wash-and-go shape hugs the head with soft coily volume at the crown, flattering an oval face's balance and gently rounding out a heart face's pointed chin.",
-                genderStyle = FEMININE
-            )
-        ),
         (HairLength.MEDIUM to HairTexture.STRAIGHT) to listOf(
             Seed(
                 "Sleek Lob", listOf(OVAL, HEART, DIAMOND),
@@ -618,38 +581,6 @@ object SampleData {
                 imageUrl = THUMB_CURLY_UNDERCUT
             )
         ),
-        (HairLength.MEDIUM to HairTexture.COILY) to listOf(
-            Seed(
-                "Shoulder-Length Twist-Out", listOf(HEART, DIAMOND),
-                "A twist-out styled to fall at the shoulders adds fullness right at the jawline, balancing a heart face's narrow chin or a diamond face's angular cheekbones.",
-                genderStyle = UNISEX
-            ),
-            Seed(
-                "Layered Coily Shag", listOf(ROUND, SQUARE),
-                "Internal layers lift coils at the crown to elongate a round face while softening a square jaw with broken-up, shaggy movement.",
-                genderStyle = UNISEX
-            ),
-            Seed(
-                "Wash-and-Go Layered Cut", listOf(OVAL, HEART),
-                "Face-framing layers left slightly shorter around the forehead soften a heart face's wider brow, while an oval face wears the fuller wash-and-go shape with balance.",
-                genderStyle = UNISEX
-            ),
-            Seed(
-                "Braid-Out Curtain Style", listOf(DIAMOND, SQUARE),
-                "A center-parted braid-out falls in curtain-like sections that add width at the temples, balancing diamond cheekbones and softening square angles.",
-                genderStyle = FEMININE
-            ),
-            Seed(
-                "Tapered Coily Lob", listOf(ROUND, OVAL),
-                "Tapering the sides while keeping length through the crown controls width and adds elongation for a round face, with an oval face carrying the balanced taper easily.",
-                genderStyle = MASCULINE
-            ),
-            Seed(
-                "High-Top Twist Fade", listOf(DIAMOND, ROUND),
-                "Twists styled tall and full on top narrow the visual width at the cheeks for a diamond face and add elongating height for a round face, with tightly faded sides.",
-                genderStyle = MASCULINE
-            )
-        ),
         (HairLength.LONG to HairTexture.STRAIGHT) to listOf(
             Seed(
                 "Long Layers", listOf(OVAL, SQUARE),
@@ -790,43 +721,6 @@ object SampleData {
                 "Loose curl layers falling past the jaw soften a square jaw's edges and add elongating length for a round face.",
                 genderStyle = MASCULINE,
                 imageUrl = THUMB_CURLY_SHOULDER_LENGTH_LAYERS
-            )
-        ),
-        (HairLength.LONG to HairTexture.COILY) to listOf(
-            Seed(
-                "Long Twist-Out", listOf(OVAL, HEART),
-                "Full twist-out volume left long adds width at the jaw, balancing a heart face's narrow chin, while an oval face carries the fuller silhouette with ease.",
-                genderStyle = UNISEX
-            ),
-            Seed(
-                "Long Layered Coily Shag", listOf(ROUND, SQUARE),
-                "Deep internal layers lift coils at the crown for an elongating effect on round faces and soften a square jaw with broken-up movement.",
-                genderStyle = UNISEX
-            ),
-            Seed(
-                "Braid-Out with Curtain Fringe", listOf(DIAMOND, HEART),
-                "A center-parted braid-out frames the face in curtain-like sections, adding forehead coverage for a heart face and fullness at the temples for a diamond face.",
-                genderStyle = FEMININE
-            ),
-            Seed(
-                "Long Coily V-Cut", listOf(ROUND, DIAMOND),
-                "A deep V-point elongates a round face, and the flared width at the ends balances a diamond face's angular cheekbones.",
-                genderStyle = FEMININE
-            ),
-            Seed(
-                "Long Natural Coils with Side Part", listOf(OVAL, SQUARE),
-                "An off-center part shifts coil volume to one side, softening a square jaw's symmetry, while an oval face wears the full, natural coil length with balance.",
-                genderStyle = UNISEX
-            ),
-            Seed(
-                "Long Locs", listOf(OVAL, SQUARE),
-                "Locs worn long keep the silhouette narrow and elongated, softening a square jaw, while an oval face carries the length with natural balance.",
-                genderStyle = MASCULINE
-            ),
-            Seed(
-                "Long Coily Man Bun", listOf(ROUND, DIAMOND),
-                "Coils gathered up and back build height at the crown to elongate round proportions, and the pulled-back style balances diamond cheekbones.",
-                genderStyle = MASCULINE
             )
         )
     )

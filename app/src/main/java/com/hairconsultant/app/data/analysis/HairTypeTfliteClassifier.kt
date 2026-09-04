@@ -12,8 +12,9 @@ data class HairTypeCnnResult(val texture: HairTexture, val confidence: Float)
 
 /**
  * MobileNetV2 transfer-learning classifier trained (see ml/train_classifiers.ipynb) on the
- * kavyasreeb Kaggle hair-type dataset: Straight/Wavy/Curly/Coily (its Kinky class was renamed to
- * Coily; its Dreadlocks class was dropped as a hairstyle rather than a texture).
+ * kavyasreeb Kaggle hair-type dataset: Straight/Wavy/Curly (its Kinky class is merged into Curly
+ * rather than kept as its own Coily class — the app doesn't distinguish them; its Dreadlocks
+ * class was dropped as a hairstyle rather than a texture).
  *
  * Labels are hardcoded in the exact alphabetical order Keras's `image_dataset_from_directory`
  * assigns them at training time (folder names match [HairTexture] enum names exactly), rather
@@ -88,7 +89,7 @@ class HairTypeTfliteClassifier(context: Context) : AutoCloseable {
         const val MODEL_ASSET = "hair_type_classifier.tflite"
 
         /** Must match the alphabetical class order the training notebook's dataset folders produce. */
-        private val LABELS = arrayOf("COILY", "CURLY", "STRAIGHT", "WAVY")
+        private val LABELS = arrayOf("CURLY", "STRAIGHT", "WAVY")
     }
 }
 
