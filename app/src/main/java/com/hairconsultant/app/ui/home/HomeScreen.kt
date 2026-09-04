@@ -170,7 +170,7 @@ private fun CatalogFilterRow(
             FilterDropdown(
                 label = "Hair length",
                 selected = uiState.hairLengthFilter,
-                options = HairLength.entries,
+                options = HairLength.entries - HairLength.BALD,
                 optionLabel = { it.displayName },
                 onSelected = onHairLengthSelected,
                 modifier = Modifier.weight(1f)
