@@ -16,25 +16,22 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
- * The AI hairstylist's reasoning engine: a Gemini text model grounded on
- * [HairKnowledgeBase] so its hairstyle suggestions and answers come from real hairstyling
- * guidance rather than a hard-coded decision tree. [context] carries whatever the calling
- * screen already knows for certain (confirmed face shape/length/texture, the specific catalog
- * candidates being shown) so the model reasons over real, in-catalog options instead of
- * inventing styles that don't exist in the app.
+ * The AI hairstylist's reasoning engine: a Gemini text model grounded on passages retrieved from
+ * [HairKnowledgeBase] by [retriever] (retrieval-augmented generation) so its hairstyle suggestions
+ * and answers come from real hairstyling guidance rather than a hard-coded decision tree.
+ * [context] carries whatever the calling screen already knows for certain (confirmed face
+ * shape/length/texture, the specific catalog candidates being shown) so the model reasons over
+ * real, in-catalog options instead of inventing styles that don't exist in the app.
  */
 interface GeminiChatRepository {
     suspend fun reply(conversation: List<ChatMessage>, userMessage: String, context: String): Result<String>
 }
 
 class GeminiChatRepositoryImpl(
+    private val retriever: HairKnowledgeRetriever = GeminiHairKnowledgeRetriever(),
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(20, TimeUnit.SECONDS)
@@ -47,12 +44,18 @@ class GeminiChatRepositoryImpl(
             return Result.failure(IllegalStateException("Set GEMINI_API_KEY in local.properties to enable the AI consultant."))
         }
         return runCatching {
+            // Retrieval-augmented grounding: fetch just the knowledge passages relevant to this
+            // question rather than the whole knowledge base; if retrieval itself fails (e.g. no
+            // network for the embedding call), fall back to the full reference text so the chat
+            // still answers, just less precisely targeted.
+            val knowledge = retriever.retrieve(userMessage)
+                .getOrElse { HairKnowledgeBase.chunks.map { it.text } }
             val requestJson = buildJsonObject {
                 put(
                     "systemInstruction",
                     buildJsonObject {
                         putJsonArray("parts") {
-                            add(buildJsonObject { put("text", SYSTEM_PROMPT) })
+                            add(buildJsonObject { put("text", buildSystemPrompt(knowledge)) })
                         }
                     }
                 )
@@ -96,7 +99,7 @@ class GeminiChatRepositoryImpl(
                 .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
-            val responseBody = httpClient.await(request)
+            val responseBody = httpClient.awaitBody(request)
             extractText(responseBody)
         }
     }
@@ -113,33 +116,17 @@ class GeminiChatRepositoryImpl(
         return text
     }
 
-    private suspend fun OkHttpClient.await(request: Request): String = suspendCancellableCoroutine { cont ->
-        val call = newCall(request)
-        cont.invokeOnCancellation { call.cancel() }
-        call.enqueue(object : okhttp3.Callback {
-            override fun onFailure(call: okhttp3.Call, e: IOException) {
-                cont.resumeWithException(e)
-            }
-
-            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                response.use {
-                    val body = it.body?.string().orEmpty()
-                    if (it.isSuccessful) {
-                        cont.resume(body)
-                    } else {
-                        cont.resumeWithException(IOException("Gemini request failed (${it.code}): $body"))
-                    }
-                }
-            }
-        })
-    }
+    private fun buildSystemPrompt(retrievedKnowledge: List<String>): String =
+        INSTRUCTIONS + "\n\n" + retrievedKnowledge.joinToString(separator = "\n\n") + "\n\n" + RULES
 
     private companion object {
-        val SYSTEM_PROMPT: String = """
+        val INSTRUCTIONS: String = """
             You are the AI hair consultant inside the HairConsultant app. You help users pick a
             hairstyle and understand hair care, reasoning from the hairstyling knowledge below —
             never from generic guesses.
-        """.trimIndent() + "\n\n" + HairKnowledgeBase.referenceText + "\n\n" + """
+        """.trimIndent()
+
+        val RULES: String = """
             Rules:
             - Only recommend hairstyles that appear in the "candidate haircuts" list given in the
               context, if one is given — never invent a style name that isn't listed there.
@@ -149,6 +136,8 @@ class GeminiChatRepositoryImpl(
             - If the context doesn't yet include a confirmed face shape, hair texture, or length
               and the user's question depends on one, ask a short clarifying question instead of
               guessing.
+            - If none of the knowledge above actually answers the question, say so plainly instead
+              of guessing.
             - Keep replies conversational and concise: 2-4 sentences, no headers or bullet lists.
         """.trimIndent()
     }

@@ -26,8 +26,10 @@ import com.hairconsultant.app.data.remote.firebase.MediaStorageRepository
 import com.hairconsultant.app.data.remote.firebase.UserProfileRemoteRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepositoryImpl
+import com.hairconsultant.app.data.remote.gemini.GeminiHairKnowledgeRetriever
 import com.hairconsultant.app.data.remote.gemini.GeminiImageRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiImageRepositoryImpl
+import com.hairconsultant.app.data.remote.gemini.HairKnowledgeRetriever
 import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.ConsultationRepositoryImpl
 import com.hairconsultant.app.data.repository.FeedbackRepository
@@ -77,7 +79,11 @@ class AppContainer(private val appContext: Context) {
 
     // --- Gemini (image-upload AR try-on generation + the AI consultant chatbot's reasoning) ---
     val geminiImageRepository: GeminiImageRepository by lazy { GeminiImageRepositoryImpl(appContext) }
-    val geminiChatRepository: GeminiChatRepository by lazy { GeminiChatRepositoryImpl() }
+
+    // RAG: embeds HairKnowledgeBase's chunks and retrieves the ones relevant to each question,
+    // so the chatbot is grounded on just the passages that answer it rather than the whole base.
+    private val hairKnowledgeRetriever: HairKnowledgeRetriever by lazy { GeminiHairKnowledgeRetriever() }
+    val geminiChatRepository: GeminiChatRepository by lazy { GeminiChatRepositoryImpl(hairKnowledgeRetriever) }
 
     /**
      * One shared chatbot conversation for the whole app (Home, Face Scan, Image Upload all use
