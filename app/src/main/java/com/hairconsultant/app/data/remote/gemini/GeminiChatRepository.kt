@@ -129,7 +129,13 @@ class GeminiChatRepositoryImpl(
         val RULES: String = """
             Rules:
             - Only recommend hairstyles that appear in the "candidate haircuts" list given in the
-              context, if one is given — never invent a style name that isn't listed there.
+              context, if one is given — never invent a style name that isn't listed there, and
+              never rename, shorten, or combine one into a name that doesn't appear verbatim in
+              that list, since the app displays that exact candidate list as image cards right
+              under your reply and any other name will visibly mismatch the pictures shown.
+            - When you do recommend a specific style, spell its name exactly as it appears in the
+              candidate list (matching case and punctuation) so it's recognizable against the
+              cards shown beneath your reply.
             - Ground every recommendation or answer in the reference knowledge above: name the
               specific mechanism (e.g. "adds width at the jaw", "needs extra moisture because
               tightly-curled hair is driest") rather than giving a generic compliment.

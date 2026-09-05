@@ -127,29 +127,41 @@ class HomeViewModel(
         _uiState.update { it.copy(cameraTryOnHaircut = null) }
     }
 
-    /** Routes free-form chat through the AI consultant, grounded on whatever catalog entries match. */
+    /**
+     * Routes free-form chat through the AI consultant, grounded on whatever catalog entries
+     * match. [candidates] is computed once and reused for both the model's grounding context and
+     * the gallery shown under its reply — they must be the exact same list, otherwise the model
+     * can end up describing one style while the visible images are an unrelated, independently
+     * chosen slice of the catalog.
+     */
     private suspend fun respondToChat(text: String) {
         val catalog = _uiState.value.clusters.flatMap { it.haircuts }
         val matched = matchHaircuts(catalog, text)
-        val candidatesForContext = matched.ifEmpty { catalog }
-        val candidatesForGallery = matched.ifEmpty { catalog.shuffled() }.take(4)
-        val context = "Candidate haircuts from the catalog:\n${candidatesForContext.describeForChatContext()}"
+        val candidates = (matched.ifEmpty { catalog.shuffled() }).take(MAX_CHAT_CANDIDATES)
+        val context = "Candidate haircuts from the catalog:\n${candidates.describeForChatContext()}"
         chatRepository.reply(chatBot.state.value.messages, text, context)
-            .onSuccess { reply -> chatBot.pushBotMessage(reply, haircutOptions = candidatesForGallery) }
+            .onSuccess { reply -> chatBot.pushBotMessage(reply, haircutOptions = candidates) }
             .onFailure { error ->
                 chatBot.pushBotMessage(
                     "I couldn't reach the AI consultant right now (${error.message}). " +
                         "Try the Face Scan or Image Upload tab for a personalized match in the meantime.",
-                    haircutOptions = candidatesForGallery
+                    haircutOptions = candidates
                 )
             }
     }
+
+    private companion object {
+        /** Keeps the grounding context and the on-screen gallery row to the same manageable size. */
+        const val MAX_CHAT_CANDIDATES = 8
+    }
 }
 
-private fun matchHaircuts(catalog: List<Haircut>, text: String): List<Haircut> {
+/** Matches catalog entries the user's message is plausibly about, by name or by length/texture/face shape. */
+internal fun matchHaircuts(catalog: List<Haircut>, text: String): List<Haircut> {
     val lower = text.lowercase()
     return catalog.filter { haircut ->
-        lower.contains(haircut.length.displayName.lowercase()) ||
+        lower.contains(haircut.name.lowercase()) ||
+            lower.contains(haircut.length.displayName.lowercase()) ||
             lower.contains(haircut.texture.displayName.lowercase()) ||
             haircut.recommendedFaceShapes.any { lower.contains(it.displayName.lowercase()) }
     }
