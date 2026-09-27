@@ -132,7 +132,8 @@ class FaceScanViewModel(
      */
     private suspend fun respondFreeform(text: String) {
         val context = buildConsultationContext()
-        chatRepository.reply(chatBot.state.value.messages, text, context)
+        val conversation = chatBot.buildReplyContext()
+        chatRepository.reply(conversation.recentMessages, text, context, conversation.summary)
             .onSuccess { reply -> chatBot.pushBotMessage(reply) }
             .onFailure { error -> chatBot.pushBotMessage("I couldn't reach the AI consultant right now (${error.message}).") }
     }
@@ -311,11 +312,13 @@ class FaceScanViewModel(
                     .ifEmpty { haircutRepository.observeClusters().first().flatMap { it.haircuts }.take(6) }
             }
             _uiState.update { it.copy(suggestions = suggestions) }
+            val conversation = chatBot.buildReplyContext()
             val intro = chatRepository.reply(
-                chatBot.state.value.messages,
+                conversation.recentMessages,
                 "The user just confirmed they're happy with the consultation. Recommend hairstyles from the " +
                     "candidates now, weaving in everything relevant from our conversation, and explain why each fits.",
-                buildConsultationContext(suggestions)
+                buildConsultationContext(suggestions),
+                conversation.summary
             ).getOrElse {
                 if (bald) {
                     "Since you don't have hair to style, you can try a wig. " +

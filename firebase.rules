@@ -12,6 +12,10 @@ rules_version = '2';
 //                    each document carries the owning `userId`.
 //  - feedback       star ratings + written reviews, keyed by a random id, each document
 //                    carries the owning `userId`.
+//  - chatMessages   AI-chatbot conversation history, keyed by the message id, each document
+//                    carries the owning `userId`. Mirrors the per-user Room table the app
+//                    actually reads from (see ChatHistoryRepositoryImpl); pulled back only to
+//                    restore a fresh install/new device's otherwise-empty local history.
 //  - haircuts       shared, curated haircut catalog. Every user can read it; the catalog in
 //                    code (SampleData.kt) is the single source of truth, and every app launch
 //                    reconciles this collection to exactly match it (see
@@ -39,6 +43,11 @@ service cloud.firestore {
     }
 
     match /feedback/{feedbackId} {
+      allow read, update, delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    match /chatMessages/{messageId} {
       allow read, update, delete: if signedIn() && resource.data.userId == request.auth.uid;
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
     }

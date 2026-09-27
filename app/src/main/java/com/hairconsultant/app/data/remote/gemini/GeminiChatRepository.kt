@@ -27,7 +27,26 @@ import java.util.concurrent.TimeUnit
  * real, in-catalog options instead of inventing styles that don't exist in the app.
  */
 interface GeminiChatRepository {
-    suspend fun reply(conversation: List<ChatMessage>, userMessage: String, context: String): Result<String>
+    /**
+     * [conversation] should be just the recent-messages window, not necessarily the user's whole
+     * history — [conversationSummary], when non-null, carries the durable facts folded out of
+     * whatever came before that window (see [summarizeConversation]), so the model still has
+     * long-term context without every older turn being replayed verbatim on every call.
+     */
+    suspend fun reply(
+        conversation: List<ChatMessage>,
+        userMessage: String,
+        context: String,
+        conversationSummary: String?
+    ): Result<String>
+
+    /**
+     * Condenses [newMessages] into [previousSummary] (or starts a fresh one if null), producing a
+     * compact paragraph of durable facts — confirmed face shape/length/texture, treatments
+     * discussed, styles liked/disliked, stated preferences — that [reply] can pass back in as
+     * [conversationSummary] once those messages age out of the recent window.
+     */
+    suspend fun summarizeConversation(previousSummary: String?, newMessages: List<ChatMessage>): Result<String>
 }
 
 class GeminiChatRepositoryImpl(
@@ -39,7 +58,12 @@ class GeminiChatRepositoryImpl(
         .build()
 ) : GeminiChatRepository {
 
-    override suspend fun reply(conversation: List<ChatMessage>, userMessage: String, context: String): Result<String> {
+    override suspend fun reply(
+        conversation: List<ChatMessage>,
+        userMessage: String,
+        context: String,
+        conversationSummary: String?
+    ): Result<String> {
         if (BuildConfig.GEMINI_API_KEY.isBlank()) {
             return Result.failure(IllegalStateException("Set GEMINI_API_KEY in local.properties to enable the AI consultant."))
         }
@@ -55,7 +79,7 @@ class GeminiChatRepositoryImpl(
                     "systemInstruction",
                     buildJsonObject {
                         putJsonArray("parts") {
-                            add(buildJsonObject { put("text", buildSystemPrompt(knowledge)) })
+                            add(buildJsonObject { put("text", buildSystemPrompt(knowledge, conversationSummary)) })
                         }
                     }
                 )
@@ -104,6 +128,55 @@ class GeminiChatRepositoryImpl(
         }
     }
 
+    override suspend fun summarizeConversation(previousSummary: String?, newMessages: List<ChatMessage>): Result<String> {
+        if (newMessages.isEmpty()) return Result.success(previousSummary.orEmpty())
+        if (BuildConfig.GEMINI_API_KEY.isBlank()) {
+            return Result.failure(IllegalStateException("Set GEMINI_API_KEY in local.properties to enable the AI consultant."))
+        }
+        return runCatching {
+            val transcript = newMessages.joinToString(separator = "\n") { "${it.sender.name}: ${it.text}" }
+            val requestJson = buildJsonObject {
+                put(
+                    "systemInstruction",
+                    buildJsonObject {
+                        putJsonArray("parts") { add(buildJsonObject { put("text", SUMMARIZE_INSTRUCTIONS) }) }
+                    }
+                )
+                putJsonArray("contents") {
+                    add(
+                        buildJsonObject {
+                            put("role", "user")
+                            putJsonArray("parts") {
+                                add(
+                                    buildJsonObject {
+                                        put(
+                                            "text",
+                                            "Previous summary: ${previousSummary?.takeIf { it.isNotBlank() } ?: "(none yet)"}" +
+                                                "\n\nNew messages to fold in:\n$transcript"
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    )
+                }
+                put(
+                    "generationConfig",
+                    buildJsonObject { put("thinkingConfig", buildJsonObject { put("thinkingBudget", 0) }) }
+                )
+            }
+
+            val request = Request.Builder()
+                .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")
+                .addHeader("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
+                .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val responseBody = httpClient.awaitBody(request)
+            extractText(responseBody)
+        }
+    }
+
     private fun extractText(responseBody: String): String {
         val root = Json.parseToJsonElement(responseBody).jsonObject
         val candidates = root["candidates"]?.jsonArray
@@ -116,10 +189,30 @@ class GeminiChatRepositoryImpl(
         return text
     }
 
-    private fun buildSystemPrompt(retrievedKnowledge: List<String>): String =
-        INSTRUCTIONS + "\n\n" + retrievedKnowledge.joinToString(separator = "\n\n") + "\n\n" + RULES
+    private fun buildSystemPrompt(retrievedKnowledge: List<String>, conversationSummary: String?): String = buildString {
+        append(INSTRUCTIONS)
+        if (!conversationSummary.isNullOrBlank()) {
+            append("\n\nSummary of this user's earlier conversation (older turns already folded out of the ")
+            append("message history below, so rely on this for anything from before the recent messages):\n")
+            append(conversationSummary)
+        }
+        append("\n\n")
+        append(retrievedKnowledge.joinToString(separator = "\n\n"))
+        append("\n\n")
+        append(RULES)
+    }
 
     private companion object {
+        val SUMMARIZE_INSTRUCTIONS: String = """
+            You maintain a compact running summary of an ongoing conversation between a user and
+            an AI hair consultant. Update the previous summary to fold in the new messages below —
+            don't start over or restate what's unchanged. Keep only durable facts: confirmed face
+            shape, hair length/texture, treatments discussed, styles the user liked, disliked, or
+            ruled out, and any stated preferences or constraints (budget, lifestyle, maintenance).
+            Drop pleasantries and small talk. Write it as a short paragraph, not a list. Output
+            only the updated summary text, nothing else.
+        """.trimIndent()
+
         val INSTRUCTIONS: String = """
             You are the AI hair consultant inside the HairConsultant app. You help users pick a
             hairstyle and understand hair care, reasoning from the hairstyling knowledge below —

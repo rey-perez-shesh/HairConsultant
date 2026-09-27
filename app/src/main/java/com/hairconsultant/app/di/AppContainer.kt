@@ -13,10 +13,12 @@ import com.hairconsultant.app.data.analysis.StillImageFaceLandmarker
 import com.hairconsultant.app.data.analysis.StillImageHairSegmenter
 import com.hairconsultant.app.data.local.AppDatabase
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
+import com.hairconsultant.app.data.remote.firebase.ChatHistoryRemoteRepository
 import com.hairconsultant.app.data.remote.firebase.ConsultationRemoteRepository
 import com.hairconsultant.app.data.remote.firebase.FeedbackRemoteRepository
 import com.hairconsultant.app.data.remote.firebase.FirebaseAuthRepository
 import com.hairconsultant.app.data.remote.firebase.FirebaseMediaStorageRepository
+import com.hairconsultant.app.data.remote.firebase.FirestoreChatHistoryRepository
 import com.hairconsultant.app.data.remote.firebase.FirestoreConsultationRepository
 import com.hairconsultant.app.data.remote.firebase.FirestoreFeedbackRepository
 import com.hairconsultant.app.data.remote.firebase.FirestoreHaircutRepository
@@ -30,6 +32,8 @@ import com.hairconsultant.app.data.remote.gemini.GeminiHairKnowledgeRetriever
 import com.hairconsultant.app.data.remote.gemini.GeminiImageRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiImageRepositoryImpl
 import com.hairconsultant.app.data.remote.gemini.HairKnowledgeRetriever
+import com.hairconsultant.app.data.repository.ChatHistoryRepository
+import com.hairconsultant.app.data.repository.ChatHistoryRepositoryImpl
 import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.ConsultationRepositoryImpl
 import com.hairconsultant.app.data.repository.FeedbackRepository
@@ -65,6 +69,7 @@ class AppContainer(private val appContext: Context) {
     val authRepository: AuthRepository by lazy { FirebaseAuthRepository() }
     private val userProfileRemoteRepository: UserProfileRemoteRepository by lazy { FirestoreUserProfileRepository() }
     private val consultationRemoteRepository: ConsultationRemoteRepository by lazy { FirestoreConsultationRepository() }
+    private val chatHistoryRemoteRepository: ChatHistoryRemoteRepository by lazy { FirestoreChatHistoryRepository() }
     private val feedbackRemoteRepository: FeedbackRemoteRepository by lazy { FirestoreFeedbackRepository() }
     private val haircutRemoteRepository: HaircutRemoteRepository by lazy { FirestoreHaircutRepository() }
     val mediaStorageRepository: MediaStorageRepository by lazy { FirebaseMediaStorageRepository() }
@@ -88,9 +93,12 @@ class AppContainer(private val appContext: Context) {
     /**
      * One shared chatbot conversation for the whole app (Home, Face Scan, Image Upload all use
      * this same instance) so switching tabs never starts a new conversation. Each screen's
-     * ViewModel calls [ChatBotController.setHandler] when it becomes active.
+     * ViewModel calls [ChatBotController.setHandler] when it becomes active. The conversation
+     * itself is scoped to the signed-in user via [chatHistoryRepository] (Room + Firestore-backed,
+     * see [ChatBotController]'s doc) so it persists across app restarts and doesn't leak between
+     * different users signing in on the same device.
      */
-    val chatBotController: ChatBotController by lazy { ChatBotController() }
+    val chatBotController: ChatBotController by lazy { ChatBotController(authRepository, chatHistoryRepository) }
 
     // --- Face + hair: MediaPipe live landmarker/hair mask + ML Kit second check ---
     // Swap LandmarkFaceAnalyzer(...) for MockFaceAnalyzer() to restore random results.
@@ -121,4 +129,13 @@ class AppContainer(private val appContext: Context) {
         ConsultationRepositoryImpl(database.consultationDao(), database.haircutDao(), consultationRemoteRepository)
     }
     val feedbackRepository: FeedbackRepository by lazy { FeedbackRepositoryImpl(database.feedbackDao(), feedbackRemoteRepository) }
+    val chatHistoryRepository: ChatHistoryRepository by lazy {
+        ChatHistoryRepositoryImpl(
+            database.chatMessageDao(),
+            database.chatSummaryDao(),
+            database.haircutDao(),
+            chatHistoryRemoteRepository,
+            geminiChatRepository
+        )
+    }
 }

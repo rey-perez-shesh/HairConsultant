@@ -143,7 +143,8 @@ class HomeViewModel(
         val matched = matchHaircuts(catalog, text)
         val candidates = (matched.ifEmpty { catalog.shuffled() }).take(MAX_CHAT_CANDIDATES)
         val context = "Candidate haircuts from the catalog:\n${candidates.describeForChatContext()}"
-        chatRepository.reply(chatBot.state.value.messages, text, context)
+        val conversation = chatBot.buildReplyContext()
+        chatRepository.reply(conversation.recentMessages, text, context, conversation.summary)
             .onSuccess { reply -> chatBot.pushBotMessage(reply, haircutOptions = candidates) }
             .onFailure { error ->
                 chatBot.pushBotMessage(
