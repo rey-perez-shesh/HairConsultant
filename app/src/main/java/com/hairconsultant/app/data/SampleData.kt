@@ -22,9 +22,10 @@ import com.hairconsultant.app.domain.model.TreatmentPreference
  * heart/diamond faces need width added back at the jaw or forehead, oval is naturally balanced).
  * Every entry's [Haircut.description] states the specific reason it suits those shapes.
  *
- * [com.hairconsultant.app.data.repository.HaircutRepositoryImpl] migrates this list into
- * Firestore's "haircuts" collection the first time the app runs against an empty project, and
- * falls back to it whenever Firestore/network is unavailable.
+ * [com.hairconsultant.app.data.repository.HaircutRepositoryImpl] is the single source of truth
+ * for this catalog: every refresh reconciles Firestore's "haircuts" collection to exactly match
+ * this list (creating/updating/deleting documents as needed) and writes it straight into Room, so
+ * the catalog shown never depends on a network round trip and never drifts from what's in code.
  */
 object SampleData {
 
@@ -35,40 +36,6 @@ object SampleData {
         val genderStyle: HaircutGenderStyle = UNISEX,
         /** Optional Coil-compatible image URL (android.resource://… for local thumbs). */
         val imageUrl: String? = null
-    )
-
-    /** Catalog IDs whose name/thumbnail were updated for Meshy GLB try-on assets. */
-    val MESHY_REPLACED_IDS: Set<String> = setOf(
-        "SHORT_STRAIGHT_0", // Boy Cut
-        "SHORT_STRAIGHT_1", // Curtains
-        "LONG_WAVY_1" // Long Wavy Hair (thumbnail/name; enable AR in HairstyleArCatalog.DEDICATED_GLB_IDS)
-    )
-
-    /** New catalog cards added with local drawable thumbnails (merged on refresh). */
-    val NEW_CATALOG_IDS: Set<String> = setOf(
-        "SHORT_STRAIGHT_6", // Short Bob
-        "SHORT_STRAIGHT_7", // Modern Pompadour
-        "SHORT_STRAIGHT_8", // Undercut
-        "SHORT_STRAIGHT_9", // French Crop
-        "SHORT_STRAIGHT_10", // Classic
-        "SHORT_STRAIGHT_11", // Textured Pixie
-        "MEDIUM_STRAIGHT_7", // Slicked Back
-        "MEDIUM_STRAIGHT_8", // Side Bangs
-        "MEDIUM_WAVY_6", // Medium Layered
-        "MEDIUM_WAVY_7", // Medium Modern Mullet
-        "MEDIUM_WAVY_8", // Curtains with Layer
-        "LONG_STRAIGHT_6", // Long Bob
-        "LONG_WAVY_7", // Shaggy Wolfcut
-        "LONG_WAVY_8" // Long Layered Side
-    )
-
-    /**
-     * Styles shown for both Male and Female filters (UNISEX in [HaircutGenderStyle]).
-     * Patched on refresh so Firestore/local DB stay in sync with SampleData.
-     */
-    val GENDER_UNISEX_PATCH_IDS: Set<String> = setOf(
-        "SHORT_STRAIGHT_1", // Curtains
-        "MEDIUM_STRAIGHT_8" // Side Bangs
     )
 
     private const val PKG = "com.hairconsultant.app"
@@ -212,64 +179,6 @@ object SampleData {
         "android.resource://$PKG/drawable/thumb_wavy_lob_to_long_curtain_fringe"
     private val THUMB_CURLY_CURTAIN_BANGS_LONG =
         "android.resource://$PKG/drawable/thumb_curly_curtain_bangs_long"
-
-    /** Catalog IDs whose thumbnail was corrected from provided reference images. */
-    val THUMB_PATCH_IDS: Set<String> = setOf(
-        "SHORT_STRAIGHT_2", // Side-Swept Fringe Crop
-        "SHORT_STRAIGHT_3", // Short Feathered Shag
-        "SHORT_STRAIGHT_4", // Undercut Crop with Length on Top
-        "SHORT_STRAIGHT_6", // Short Bob (Classic Blunt Bob image)
-        "SHORT_STRAIGHT_11", // Textured Pixie
-        "SHORT_WAVY_0", // Wavy Pixie
-        "SHORT_WAVY_1", // Wavy Bob with Side Bangs
-        "SHORT_WAVY_3", // Wavy Shag
-        "SHORT_WAVY_4", // Wavy Fringe Crop
-        "SHORT_WAVY_5", // Textured Quiff
-        "SHORT_CURLY_0", // Curly Bixie
-        "SHORT_CURLY_1", // Curly Bob
-        "SHORT_CURLY_2", // Wash and Go Twist Out Crop
-        "SHORT_CURLY_3", // Curly Wolf Cut
-        "SHORT_CURLY_4", // Curly Fringe Crop
-        "SHORT_CURLY_5", // Curly Crop Fade
-        "MEDIUM_STRAIGHT_1", // V-Cut Layers
-        "MEDIUM_STRAIGHT_2", // Curtain Bangs Lob
-        "MEDIUM_STRAIGHT_3", // A-Line Bob
-        "MEDIUM_STRAIGHT_4", // Face Framing Layered Cut
-        "MEDIUM_STRAIGHT_5", // Side Part Comb Over Medium
-        "MEDIUM_STRAIGHT_6", // Textured Crop Medium Length
-        "LONG_CURLY_0", // Long Curly Layers
-        "LONG_CURLY_1", // Long Curly Shag
-        "LONG_CURLY_3", // Long Curly V-Cut
-        "LONG_CURLY_4", // Long Defined Ringlets with Side Part
-        "LONG_CURLY_5", // Long Curly Man Bun
-        "LONG_CURLY_6", // Curly Shoulder Length Layers
-        "MEDIUM_STRAIGHT_0", // Sleek Lob
-        "LONG_STRAIGHT_0", // Long Layers
-        "LONG_STRAIGHT_1", // Long Curtain Bangs
-        "LONG_STRAIGHT_2", // Long Blunt
-        "LONG_STRAIGHT_3", // Long Shag
-        "LONG_STRAIGHT_4", // Sleek Straight with Side Part
-        "LONG_STRAIGHT_5", // Long Slicked Back
-        "MEDIUM_WAVY_2", // Wavy Lob with Side Part
-        "MEDIUM_WAVY_3", // Beachy Wavy Shag
-        "MEDIUM_WAVY_4", // Wavy Face-Framing Layers
-        "MEDIUM_WAVY_5", // Textured Side Part
-        "MEDIUM_WAVY_0", // Curtain Bangs Wavy Lob
-        "MEDIUM_WAVY_1", // Soft Layered Waves
-        "MEDIUM_CURLY_0", // Curly Lob
-        "MEDIUM_CURLY_1", // Layered Curly Shag
-        "MEDIUM_CURLY_2", // Curly Curtain Bangs
-        "MEDIUM_CURLY_3", // Curly V-Cut Layers
-        "MEDIUM_CURLY_4", // Devacut
-        "MEDIUM_CURLY_5", // Curly Quiff
-        "MEDIUM_CURLY_6", // Curly Undercut with Length on Top
-        "SHORT_WAVY_2", // Beach Wave Crop
-        "LONG_WAVY_0", // Wavy Lob-to-Long Curtain Fringe
-        "LONG_WAVY_2", // Long Wavy Shag
-        "LONG_WAVY_3", // V-Cut Wavy Layers
-        "LONG_WAVY_4", // Face-Framing Wavy Layers
-        "LONG_CURLY_2" // Curly Curtain Bangs Long
-    )
 
     private val catalog: Map<Pair<HairLength, HairTexture>, List<Seed>> = mapOf(
         (HairLength.SHORT to HairTexture.STRAIGHT) to listOf(

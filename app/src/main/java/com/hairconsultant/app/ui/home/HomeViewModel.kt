@@ -133,9 +133,13 @@ class HomeViewModel(
      * the gallery shown under its reply — they must be the exact same list, otherwise the model
      * can end up describing one style while the visible images are an unrelated, independently
      * chosen slice of the catalog.
+     *
+     * Reasons over [HomeUiState.allClusters] (the whole catalog), not the filtered [HomeUiState.
+     * clusters] the grid is currently showing — the user's browse filters (e.g. texture set to
+     * "Straight") shouldn't blind the AI consultant to styles it could otherwise recommend.
      */
     private suspend fun respondToChat(text: String) {
-        val catalog = _uiState.value.clusters.flatMap { it.haircuts }
+        val catalog = _uiState.value.allClusters.flatMap { it.haircuts }
         val matched = matchHaircuts(catalog, text)
         val candidates = (matched.ifEmpty { catalog.shuffled() }).take(MAX_CHAT_CANDIDATES)
         val context = "Candidate haircuts from the catalog:\n${candidates.describeForChatContext()}"
