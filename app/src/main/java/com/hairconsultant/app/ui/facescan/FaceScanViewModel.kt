@@ -129,9 +129,16 @@ class FaceScanViewModel(
      * already shown) goes to the AI consultant instead of a canned reply, so users can ask real
      * questions ("is rebonding safe for wavy hair?", "what's low-maintenance for the gym?") and
      * get an answer reasoned from [com.hairconsultant.app.data.HairKnowledgeBase].
+     *
+     * Grounds on [computeSuggestions] rather than the (pre-confirmation, still-empty)
+     * [FaceScanUiState.suggestions] directly — otherwise every question asked during CONSULTING,
+     * which is exactly the phase the user is invited into to talk about styles, would ground on
+     * an empty candidate list and the AI consultant would truthfully — but unhelpfully — report
+     * it has no candidates from the app.
      */
     private suspend fun respondFreeform(text: String) {
-        val context = buildConsultationContext()
+        val candidates = _uiState.value.suggestions.ifEmpty { computeSuggestions() }
+        val context = buildConsultationContext(candidates)
         val conversation = chatBot.buildReplyContext()
         chatRepository.reply(conversation.recentMessages, text, context, conversation.summary)
             .onSuccess { reply -> chatBot.pushBotMessage(reply) }
@@ -139,7 +146,7 @@ class FaceScanViewModel(
     }
 
     /** Everything the app already knows for certain about this scan, for the AI consultant to reason over. */
-    private fun buildConsultationContext(candidates: List<Haircut> = _uiState.value.suggestions): String {
+    private fun buildConsultationContext(candidates: List<Haircut>): String {
         val state = _uiState.value
         return buildString {
             state.scanResult?.let { append("Confirmed face shape: ${it.faceShape.displayName}. ") }
@@ -300,17 +307,7 @@ class FaceScanViewModel(
         viewModelScope.launch {
             val result = _uiState.value.scanResult ?: return@launch
             val bald = result.hairLength == HairLength.BALD || _uiState.value.desiredLength == HairLength.BALD
-            val suggestions = if (bald) {
-                haircutRepository.observeClusters().first().flatMap { it.haircuts }
-                    .filter { result.faceShape in it.recommendedFaceShapes }
-                    .ifEmpty { haircutRepository.observeClusters().first().flatMap { it.haircuts } }
-                    .take(6)
-            } else {
-                val length = _uiState.value.desiredLength ?: result.hairLength
-                val texture = _uiState.value.desiredTexture ?: result.hairTexture
-                haircutRepository.observeMatching(result.faceShape, length, texture).first()
-                    .ifEmpty { haircutRepository.observeClusters().first().flatMap { it.haircuts }.take(6) }
-            }
+            val suggestions = computeSuggestions()
             _uiState.update { it.copy(suggestions = suggestions) }
             val conversation = chatBot.buildReplyContext()
             val intro = chatRepository.reply(
@@ -330,6 +327,29 @@ class FaceScanViewModel(
             chatBot.pushBotMessage(intro, haircutOptions = suggestions)
             persistConsultation(selectedHaircut = null)
             persistPreferences()
+        }
+    }
+
+    /**
+     * Best-matching catalog haircuts for whatever's currently known (confirmed scan + any
+     * length/texture chosen while chatting) — used both to lock in [FaceScanUiState.suggestions]
+     * once the consultation is confirmed, and by [respondFreeform] to ground the AI consultant
+     * *before* confirmation too, so it's never left reasoning over an empty candidate list.
+     */
+    private suspend fun computeSuggestions(): List<Haircut> {
+        val result = _uiState.value.scanResult
+            ?: return haircutRepository.observeClusters().first().flatMap { it.haircuts }.take(MAX_SUGGESTIONS)
+        val bald = result.hairLength == HairLength.BALD || _uiState.value.desiredLength == HairLength.BALD
+        return if (bald) {
+            haircutRepository.observeClusters().first().flatMap { it.haircuts }
+                .filter { result.faceShape in it.recommendedFaceShapes }
+                .ifEmpty { haircutRepository.observeClusters().first().flatMap { it.haircuts } }
+                .take(MAX_SUGGESTIONS)
+        } else {
+            val length = _uiState.value.desiredLength ?: result.hairLength
+            val texture = _uiState.value.desiredTexture ?: result.hairTexture
+            haircutRepository.observeMatching(result.faceShape, length, texture).first()
+                .ifEmpty { haircutRepository.observeClusters().first().flatMap { it.haircuts }.take(MAX_SUGGESTIONS) }
         }
     }
 
@@ -396,6 +416,8 @@ private const val FIX_HAIR_LENGTH_LABEL = "Hair length"
 private const val FIX_HAIR_TEXTURE_LABEL = "Hair texture"
 private const val RESCAN_LABEL = "Rescan"
 private const val CONFIRM_LABEL = "Show My Hairstyles"
+/** How many catalog haircuts get surfaced as candidates, pre- or post-confirmation. */
+private const val MAX_SUGGESTIONS = 6
 
 private fun hairScanPhrase(result: ScanResult): String {
     if (result.hairLength == HairLength.BALD) {
