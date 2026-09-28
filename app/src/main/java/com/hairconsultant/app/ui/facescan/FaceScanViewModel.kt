@@ -11,6 +11,7 @@ import com.hairconsultant.app.data.remote.gemini.describeForChatContext
 import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.HaircutRepository
 import com.hairconsultant.app.data.repository.UserRepository
+import com.hairconsultant.app.domain.model.ChatMessage
 import com.hairconsultant.app.domain.model.Consultation
 import com.hairconsultant.app.domain.model.ConsultationSource
 import com.hairconsultant.app.domain.model.FaceShape
@@ -318,10 +319,11 @@ class FaceScanViewModel(
         _uiState.update { it.copy(stage = FaceScanStage.SUGGESTIONS) }
         viewModelScope.launch {
             val result = _uiState.value.scanResult ?: return@launch
+            val conversation = chatBot.buildReplyContext()
+            applyExtractedPreferences(conversation.recentMessages)
             val bald = result.hairLength == HairLength.BALD || _uiState.value.desiredLength == HairLength.BALD
             val suggestions = computeSuggestions()
             _uiState.update { it.copy(suggestions = suggestions) }
-            val conversation = chatBot.buildReplyContext()
             val intro = chatRepository.reply(
                 conversation.recentMessages,
                 "The user just confirmed they're happy with the consultation. Recommend hairstyles from the " +
@@ -339,6 +341,25 @@ class FaceScanViewModel(
             chatBot.pushBotMessage(intro, haircutOptions = suggestions)
             persistConsultation(selectedHaircut = null)
             persistPreferences()
+        }
+    }
+
+    /**
+     * Reads what the user actually said during the free-form consultation and folds any stated
+     * length/texture/treatment preference into state — so the finalized suggestions computed right
+     * after this (and the profile preferences persisted afterward) reflect what was actually
+     * discussed, not just whatever was picked via the earlier rigid quick-reply fix screen. A
+     * quiet no-op on failure (offline, API error) — [computeSuggestions] and [persistPreferences]
+     * just fall back to whatever was already known.
+     */
+    private suspend fun applyExtractedPreferences(conversation: List<ChatMessage>) {
+        val extracted = chatRepository.extractPreferences(conversation).getOrNull() ?: return
+        _uiState.update {
+            it.copy(
+                desiredLength = extracted.length ?: it.desiredLength,
+                desiredTexture = extracted.texture ?: it.desiredTexture,
+                desiredTreatment = extracted.treatment ?: it.desiredTreatment
+            )
         }
     }
 

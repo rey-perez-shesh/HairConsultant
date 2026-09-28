@@ -4,6 +4,9 @@ import com.hairconsultant.app.BuildConfig
 import com.hairconsultant.app.data.HairKnowledgeBase
 import com.hairconsultant.app.domain.model.ChatMessage
 import com.hairconsultant.app.domain.model.ChatSender
+import com.hairconsultant.app.domain.model.HairLength
+import com.hairconsultant.app.domain.model.HairTexture
+import com.hairconsultant.app.domain.model.TreatmentPreference
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -47,7 +50,24 @@ interface GeminiChatRepository {
      * [conversationSummary] once those messages age out of the recent window.
      */
     suspend fun summarizeConversation(previousSummary: String?, newMessages: List<ChatMessage>): Result<String>
+
+    /**
+     * Reads [conversation] and extracts any hair length/texture/treatment preference the user
+     * actually *stated* while chatting freely — e.g. "I'd love something curly and low
+     * maintenance" — understanding negation properly ("I don't want curly" is not the same as
+     * wanting straight) rather than naive keyword containment. Each field is null when the user
+     * never actually specified it, so callers fall back to whatever they already know (the
+     * confirmed scan, or a quick-reply fix) instead of guessing.
+     */
+    suspend fun extractPreferences(conversation: List<ChatMessage>): Result<ExtractedPreferences>
 }
+
+/** See [GeminiChatRepository.extractPreferences]. */
+data class ExtractedPreferences(
+    val length: HairLength? = null,
+    val texture: HairTexture? = null,
+    val treatment: TreatmentPreference? = null
+)
 
 class GeminiChatRepositoryImpl(
     private val retriever: HairKnowledgeRetriever = GeminiHairKnowledgeRetriever(),
@@ -177,6 +197,59 @@ class GeminiChatRepositoryImpl(
         }
     }
 
+    override suspend fun extractPreferences(conversation: List<ChatMessage>): Result<ExtractedPreferences> {
+        if (conversation.none { it.sender == ChatSender.USER }) return Result.success(ExtractedPreferences())
+        if (BuildConfig.GEMINI_API_KEY.isBlank()) {
+            return Result.failure(IllegalStateException("Set GEMINI_API_KEY in local.properties to enable the AI consultant."))
+        }
+        return runCatching {
+            val transcript = conversation.joinToString(separator = "\n") { "${it.sender.name}: ${it.text}" }
+            val requestJson = buildJsonObject {
+                put(
+                    "systemInstruction",
+                    buildJsonObject {
+                        putJsonArray("parts") { add(buildJsonObject { put("text", EXTRACT_PREFERENCES_INSTRUCTIONS) }) }
+                    }
+                )
+                putJsonArray("contents") {
+                    add(
+                        buildJsonObject {
+                            put("role", "user")
+                            putJsonArray("parts") { add(buildJsonObject { put("text", transcript) }) }
+                        }
+                    )
+                }
+                put(
+                    "generationConfig",
+                    buildJsonObject {
+                        put("thinkingConfig", buildJsonObject { put("thinkingBudget", 0) })
+                        // Guarantees a parseable JSON body back instead of prose wrapped around it.
+                        put("responseMimeType", "application/json")
+                    }
+                )
+            }
+
+            val request = Request.Builder()
+                .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")
+                .addHeader("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
+                .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val responseBody = httpClient.awaitBody(request)
+            parseExtractedPreferences(extractText(responseBody))
+        }
+    }
+
+    private fun parseExtractedPreferences(json: String): ExtractedPreferences {
+        val obj = runCatching { Json.parseToJsonElement(json).jsonObject }.getOrNull() ?: return ExtractedPreferences()
+        fun field(name: String): String? = obj[name]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+        return ExtractedPreferences(
+            length = field("length")?.let { runCatching { HairLength.valueOf(it.uppercase()) }.getOrNull() },
+            texture = field("texture")?.let { runCatching { HairTexture.valueOf(it.uppercase()) }.getOrNull() },
+            treatment = field("treatment")?.let { runCatching { TreatmentPreference.valueOf(it.uppercase()) }.getOrNull() }
+        )
+    }
+
     private fun extractText(responseBody: String): String {
         val root = Json.parseToJsonElement(responseBody).jsonObject
         val candidates = root["candidates"]?.jsonArray
@@ -203,6 +276,28 @@ class GeminiChatRepositoryImpl(
     }
 
     private companion object {
+        val EXTRACT_PREFERENCES_INSTRUCTIONS: String = """
+            You read a conversation between a user and an AI hair consultant and extract ONLY the
+            hair length/texture/treatment preferences the user explicitly stated for their next
+            hairstyle. Output strict JSON, nothing else, in exactly this shape:
+            {"length": "SHORT" | "MEDIUM" | "LONG" | "BALD" | null,
+             "texture": "STRAIGHT" | "WAVY" | "CURLY" | null,
+             "treatment": "NONE" | "REBOND" | "PERM" | null}
+
+            Rules:
+            - Use null for any field the user never actually stated a preference for. Never guess
+              or infer one from unrelated details.
+            - Pay close attention to negation: "I don't want curly" means texture is NOT curly —
+              it does NOT mean the user wants straight. If the user only says what they don't want
+              without saying what they do want, output null for that field.
+            - "REBOND" means chemical hair straightening/rebonding, "PERM" means a chemical perm
+              (adding curl/wave). Only output "NONE" if the user explicitly says they don't want
+              any treatment; otherwise, if treatment was never brought up, output null.
+            - Only extract from what the USER said, never from the assistant's own questions or
+              suggested options.
+            - Output ONLY the JSON object — no markdown fences, no explanation.
+        """.trimIndent()
+
         val SUMMARIZE_INSTRUCTIONS: String = """
             You maintain a compact running summary of an ongoing conversation between a user and
             an AI hair consultant. Update the previous summary to fold in the new messages below —
