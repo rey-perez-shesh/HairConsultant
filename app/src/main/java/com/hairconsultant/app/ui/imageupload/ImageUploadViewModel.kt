@@ -150,14 +150,26 @@ class ImageUploadViewModel(
      * CONSULTING, which is exactly the phase the user is invited into to talk about styles, would
      * ground on an empty candidate list and the AI consultant would truthfully — but
      * unhelpfully — report it has no candidates from the app.
+     *
+     * [candidates] is reused for both the model's grounding context and the gallery row shown
+     * under its reply — same principle as [com.hairconsultant.app.ui.home.HomeViewModel.
+     * respondToChat]: they must be the exact same list, so the pictures shown are always genuinely
+     * the styles being discussed rather than an independently-chosen slice of the catalog. Without
+     * this, the consultation chat could name real, accurate styles yet show no pictures of them at
+     * all until [confirmConsultation] runs.
      */
     private suspend fun respondFreeform(text: String) {
         val candidates = _uiState.value.suggestions.ifEmpty { computeSuggestions() }
         val context = buildConsultationContext(candidates)
         val conversation = chatBot.buildReplyContext()
         chatRepository.reply(conversation.recentMessages, text, context, conversation.summary)
-            .onSuccess { reply -> chatBot.pushBotMessage(reply) }
-            .onFailure { error -> chatBot.pushBotMessage("I couldn't reach the AI consultant right now (${error.message}).") }
+            .onSuccess { reply -> chatBot.pushBotMessage(reply, haircutOptions = candidates) }
+            .onFailure { error ->
+                chatBot.pushBotMessage(
+                    "I couldn't reach the AI consultant right now (${error.message}).",
+                    haircutOptions = candidates
+                )
+            }
     }
 
     /** Everything the app already knows for certain about this consultation, for the AI consultant to reason over. */
