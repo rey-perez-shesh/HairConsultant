@@ -365,7 +365,8 @@ class ImageUploadViewModel(
         chatBot.pushBotMessage("Generating \"${haircut.name}\" on your photo...")
         viewModelScope.launch {
             val prompt = buildStylePrompt(haircut)
-            val result = geminiImageRepository.generateHaircutPreview(sourceUri, prompt)
+            val referenceUri = runCatching { Uri.parse(haircut.imageUrl) }.getOrNull()
+            val result = geminiImageRepository.generateHaircutPreview(sourceUri, referenceUri, prompt)
             result.onSuccess { generatedUri ->
                 _uiState.update { it.copy(isGenerating = false, generatedImageUri = generatedUri) }
                 chatBot.pushBotMessage("Here's your new look!")
@@ -383,25 +384,42 @@ class ImageUploadViewModel(
 
     /**
      * Builds the Gemini image prompt from the chatbot conversation: the face shape the user
-     * confirmed, the length/texture/treatment they chose while chatting, and everything else
-     * they typed or tapped, so the generated preview reflects what was actually discussed.
+     * confirmed, the length/texture/treatment they chose while chatting, and everything else they
+     * typed or tapped, so the generated preview reflects what was actually discussed. Explicitly
+     * tells Gemini which of the two attached images is which, since [GeminiImageRepository.
+     * generateHaircutPreview] now sends the catalog's own reference photo for [haircut] alongside
+     * the user's source photo, rather than leaving the style's look to be guessed from its name.
+     *
+     * Reuses [ChatBotController.buildReplyContext] (the same bounded recent-window + rolling
+     * summary built for chat replies) instead of re-truncating [chatBot]'s full history here —
+     * so, unlike the old oldest-first `.take(600)`, the *most recent* thing the user asked for
+     * survives, no matter how long the persisted conversation has grown across sessions.
      */
-    private fun buildStylePrompt(haircut: Haircut): String {
+    private suspend fun buildStylePrompt(haircut: Haircut): String {
         val state = _uiState.value
-        val conversationContext = chatBot.state.value.messages
+        val conversation = chatBot.buildReplyContext()
+        val recentUserAsks = conversation.recentMessages
             .filter { it.sender == ChatSender.USER }
+            .takeLast(MAX_STYLE_PROMPT_USER_TURNS)
             .joinToString(separator = "; ") { it.text }
-            .take(600)
         return buildString {
-            append("Apply the \"${haircut.name}\" hairstyle (${haircut.length.displayName.lowercase()} length, ")
-            append("${haircut.texture.displayName.lowercase()} texture) to the person in the photo, ")
+            append("The first attached image is a photo of the person to restyle. The second attached image is ")
+            append("a reference photo of the exact \"${haircut.name}\" hairstyle (")
+            append("${haircut.length.displayName.lowercase()} length, ${haircut.texture.displayName.lowercase()} texture) — ")
+            append("apply that hairstyle's shape and cut to the person in the first image, ")
             append("keeping their face, skin tone, and background unchanged.")
+            if (haircut.description.isNotBlank()) {
+                append(" Style detail: ${haircut.description}")
+            }
             state.scanResult?.let { append(" Their face shape is ${it.faceShape.displayName.lowercase()}.") }
             (state.desiredTreatment ?: haircut.treatment).takeIf { it != TreatmentPreference.NONE }?.let {
                 append(" Include a ${it.displayName.lowercase()} treatment look.")
             }
-            if (conversationContext.isNotBlank()) {
-                append(" Context from the conversation with the user: $conversationContext.")
+            if (!conversation.summary.isNullOrBlank()) {
+                append(" Earlier in the conversation: ${conversation.summary}")
+            }
+            if (recentUserAsks.isNotBlank()) {
+                append(" Recent requests from the user: $recentUserAsks.")
             }
         }
     }
@@ -472,6 +490,8 @@ private const val FIX_HAIR_LENGTH_LABEL = "Hair length"
 private const val FIX_HAIR_TEXTURE_LABEL = "Hair texture"
 private const val RESCAN_LABEL = "Rescan"
 private const val CONFIRM_LABEL = "Show My Hairstyles"
+/** How many of the most recent user chat turns get quoted into the image-generation prompt. */
+private const val MAX_STYLE_PROMPT_USER_TURNS = 6
 
 private fun hairScanPhrase(result: ScanResult): String {
     if (result.hairLength == HairLength.BALD) {

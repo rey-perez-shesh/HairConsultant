@@ -18,15 +18,18 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.IOException
+import java.net.URLConnection
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
- * Calls the Gemini image generation endpoint with the user's photo + a styling [prompt] built
- * from the chatbot conversation so it can render the discussed look onto the uploaded photo.
- * Every call is a no-op failure until [BuildConfig.GEMINI_API_KEY] is set in local.properties.
+ * Calls the Gemini image generation endpoint with the user's photo + the selected style's catalog
+ * reference photo + a styling [prompt] built from the chatbot conversation, so it can render the
+ * discussed look onto the uploaded photo with an actual visual anchor for what that style looks
+ * like, not just its name. Every call is a no-op failure until [BuildConfig.GEMINI_API_KEY] is set
+ * in local.properties.
  */
 class GeminiImageRepositoryImpl(
     private val appContext: Context,
@@ -39,15 +42,20 @@ class GeminiImageRepositoryImpl(
         .build()
 ) : GeminiImageRepository {
 
-    override suspend fun generateHaircutPreview(sourceImageUri: Uri, prompt: String): Result<Uri> {
+    override suspend fun generateHaircutPreview(
+        sourceImageUri: Uri,
+        referenceImageUri: Uri?,
+        prompt: String
+    ): Result<Uri> {
         if (BuildConfig.GEMINI_API_KEY.isBlank()) {
             return Result.failure(IllegalStateException("Set GEMINI_API_KEY in local.properties to enable AI generation."))
         }
         return runCatching {
-            val imageBytes = appContext.contentResolver.openInputStream(sourceImageUri)?.use { it.readBytes() }
-                ?: error("Could not read the selected photo.")
-            val base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
-            val mimeType = appContext.contentResolver.getType(sourceImageUri) ?: "image/jpeg"
+            val source = readImageBytes(sourceImageUri) ?: error("Could not read the selected photo.")
+            // Best-effort: catalog thumbnails are almost always local drawables and this rarely
+            // fails, but if it does, generation still proceeds on the text description alone
+            // rather than failing outright over a missing/unreachable reference image.
+            val reference = referenceImageUri?.let { readImageBytes(it) }
 
             val requestJson = buildJsonObject {
                 putJsonArray("contents") {
@@ -55,17 +63,8 @@ class GeminiImageRepositoryImpl(
                         buildJsonObject {
                             putJsonArray("parts") {
                                 add(buildJsonObject { put("text", prompt) })
-                                add(
-                                    buildJsonObject {
-                                        put(
-                                            "inlineData",
-                                            buildJsonObject {
-                                                put("mimeType", mimeType)
-                                                put("data", base64Image)
-                                            }
-                                        )
-                                    }
-                                )
+                                add(buildJsonObject { put("inlineData", source.toInlineDataJson()) })
+                                reference?.let { add(buildJsonObject { put("inlineData", it.toInlineDataJson()) }) }
                             }
                         }
                     )
@@ -81,6 +80,26 @@ class GeminiImageRepositoryImpl(
             val responseBody = httpClient.await(request)
             saveGeneratedImage(responseBody)
         }
+    }
+
+    /** Reads [uri]'s bytes + MIME type, whether it's a local drawable/content/file URI or a remote http(s) one. */
+    private suspend fun readImageBytes(uri: Uri): Pair<ByteArray, String>? = runCatching {
+        when (uri.scheme?.lowercase()) {
+            "http", "https" -> httpClient.awaitBytesWithType(Request.Builder().url(uri.toString()).build())
+            else -> {
+                val bytes = appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: error("Could not open a stream for $uri")
+                val mimeType = appContext.contentResolver.getType(uri)
+                    ?: URLConnection.guessContentTypeFromName(uri.toString())
+                    ?: "image/jpeg"
+                bytes to mimeType
+            }
+        }
+    }.getOrNull()
+
+    private fun Pair<ByteArray, String>.toInlineDataJson() = buildJsonObject {
+        put("mimeType", second)
+        put("data", Base64.encodeToString(first, Base64.NO_WRAP))
     }
 
     /** Pulls the first inline image part out of a Gemini generateContent response and writes it to cache. */
@@ -120,4 +139,28 @@ class GeminiImageRepositoryImpl(
             }
         })
     }
+
+    /** Same as [await], but for a plain binary GET (a remote catalog thumbnail) — bytes + Content-Type. */
+    private suspend fun OkHttpClient.awaitBytesWithType(request: Request): Pair<ByteArray, String> =
+        suspendCancellableCoroutine { cont ->
+            val call = newCall(request)
+            cont.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, e: IOException) {
+                    cont.resumeWithException(e)
+                }
+
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    response.use {
+                        if (!it.isSuccessful) {
+                            cont.resumeWithException(IOException("Fetch failed (${it.code})"))
+                            return
+                        }
+                        val bytes = it.body?.bytes() ?: ByteArray(0)
+                        val mimeType = it.header("Content-Type")?.substringBefore(";")?.trim() ?: "image/jpeg"
+                        cont.resume(bytes to mimeType)
+                    }
+                }
+            })
+        }
 }

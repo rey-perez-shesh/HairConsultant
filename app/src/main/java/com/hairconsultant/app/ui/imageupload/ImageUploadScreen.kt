@@ -1,5 +1,6 @@
 package com.hairconsultant.app.ui.imageupload
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -68,7 +69,13 @@ fun ImageUploadScreen(viewModel: ImageUploadViewModel) {
                 }) { Text("Choose Photo") }
             }
         } else {
-            val displayUri = uiState.generatedImageUri ?: uiState.sourceImageUri
+            // On a failed generation, ImageUploadViewModel's chat message tells the user it's
+            // "showing the style's reference photo instead" — this fallback is what makes that
+            // true, rather than silently redisplaying their original, unstyled photo.
+            val fallbackUri = uiState.selectedHaircut?.takeIf { uiState.generationError != null }
+                ?.let { runCatching { Uri.parse(it.imageUrl) }.getOrNull() }
+                ?: uiState.sourceImageUri
+            val displayUri = uiState.generatedImageUri ?: fallbackUri
             AsyncImage(
                 model = displayUri,
                 contentDescription = "Uploaded photo",
