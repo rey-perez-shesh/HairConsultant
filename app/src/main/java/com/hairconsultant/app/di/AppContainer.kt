@@ -125,6 +125,9 @@ class AppContainer(private val appContext: Context) {
     // --- Repositories consumed by the UI layer (offline-first via Room) ---
     val userRepository: UserRepository by lazy { UserRepositoryImpl(database.userDao(), userProfileRemoteRepository) }
     val haircutRepository: HaircutRepository by lazy { HaircutRepositoryImpl(database.haircutDao(), haircutRemoteRepository) }
+    val hairstyleRecommender: com.hairconsultant.app.data.recommendation.HairstyleRecommender by lazy {
+        com.hairconsultant.app.data.recommendation.HairstyleRecommender(haircutRepository, geminiChatRepository)
+    }
     val consultationRepository: ConsultationRepository by lazy {
         ConsultationRepositoryImpl(database.consultationDao(), database.haircutDao(), consultationRemoteRepository)
     }

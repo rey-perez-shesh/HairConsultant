@@ -6,6 +6,7 @@ import com.hairconsultant.app.domain.model.ChatMessage
 import com.hairconsultant.app.domain.model.ChatSender
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
+import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.TreatmentPreference
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -60,6 +61,21 @@ interface GeminiChatRepository {
      * confirmed scan, or a quick-reply fix) instead of guessing.
      */
     suspend fun extractPreferences(conversation: List<ChatMessage>): Result<ExtractedPreferences>
+
+    /**
+     * The "thinking" step behind Show My Hairstyles: reasons (with Gemini's extended thinking
+     * enabled) over the whole [consultation], [conversationSummary], the confirmed [userProfile],
+     * and hairstyling knowledge retrieved for this specific conversation, then picks the
+     * [pickCount] best-fitting entries from [candidates] — already narrowed by the user's stated
+     * parameters — ranked best first. Only ids from [candidates] are ever returned.
+     */
+    suspend fun rankHaircuts(
+        consultation: List<ChatMessage>,
+        conversationSummary: String?,
+        userProfile: String,
+        candidates: List<Haircut>,
+        pickCount: Int
+    ): Result<RankedHaircuts>
 }
 
 /** See [GeminiChatRepository.extractPreferences]. */
@@ -68,6 +84,9 @@ data class ExtractedPreferences(
     val texture: HairTexture? = null,
     val treatment: TreatmentPreference? = null
 )
+
+/** See [GeminiChatRepository.rankHaircuts]: catalog ids best-first, plus the consultant's explanation of the picks. */
+data class RankedHaircuts(val haircutIds: List<String>, val explanation: String)
 
 class GeminiChatRepositoryImpl(
     private val retriever: HairKnowledgeRetriever = GeminiHairKnowledgeRetriever(),
@@ -240,6 +259,101 @@ class GeminiChatRepositoryImpl(
         }
     }
 
+    override suspend fun rankHaircuts(
+        consultation: List<ChatMessage>,
+        conversationSummary: String?,
+        userProfile: String,
+        candidates: List<Haircut>,
+        pickCount: Int
+    ): Result<RankedHaircuts> {
+        if (candidates.isEmpty()) return Result.failure(IllegalArgumentException("No candidate haircuts to rank."))
+        if (BuildConfig.GEMINI_API_KEY.isBlank()) {
+            return Result.failure(IllegalStateException("Set GEMINI_API_KEY in local.properties to enable the AI consultant."))
+        }
+        return runCatching {
+            val userSaid = consultation.filter { it.sender == ChatSender.USER }.joinToString(separator = " ") { it.text }
+            // Retrieve knowledge for what this user actually discussed (not a canned sentence), so
+            // the passages reasoned over match their face shape, texture, treatments and lifestyle.
+            val knowledge = retriever.retrieve("$userProfile $userSaid".takeLast(MAX_RETRIEVAL_QUERY_CHARS), RANK_KNOWLEDGE_TOP_K)
+                .getOrElse { HairKnowledgeBase.chunks.map { it.text } }
+            val transcript = consultation.joinToString(separator = "\n") { "${it.sender.name}: ${it.text}" }
+            val catalog = candidates.joinToString(separator = "\n") { haircut ->
+                "- id=${haircut.id} | \"${haircut.name}\" | ${haircut.length.displayName}, ${haircut.texture.displayName} | " +
+                    "${haircut.genderStyle.displayName} | suits ${haircut.recommendedFaceShapes.joinToString(", ") { it.displayName }} " +
+                    "face shapes | ${haircut.description}"
+            }
+            val requestJson = buildJsonObject {
+                put(
+                    "systemInstruction",
+                    buildJsonObject {
+                        putJsonArray("parts") {
+                            add(
+                                buildJsonObject {
+                                    put(
+                                        "text",
+                                        RANK_INSTRUCTIONS.replace("{count}", pickCount.toString()) +
+                                            "\n\nHairstyling knowledge:\n" + knowledge.joinToString(separator = "\n\n")
+                                    )
+                                }
+                            )
+                        }
+                    }
+                )
+                putJsonArray("contents") {
+                    add(
+                        buildJsonObject {
+                            put("role", "user")
+                            putJsonArray("parts") {
+                                add(
+                                    buildJsonObject {
+                                        put(
+                                            "text",
+                                            buildString {
+                                                append("User profile:\n$userProfile\n\n")
+                                                if (!conversationSummary.isNullOrBlank()) {
+                                                    append("Summary of earlier conversations (background only):\n$conversationSummary\n\n")
+                                                }
+                                                append("This consultation:\n$transcript\n\n")
+                                                append("Catalog candidates (already narrowed to the user's stated parameters):\n$catalog")
+                                            }
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    )
+                }
+                put(
+                    "generationConfig",
+                    buildJsonObject {
+                        // Unlike chat replies, this is the one step where deliberate reasoning is
+                        // the point: weighing face shape, stated parameters and knowledge together.
+                        put("thinkingConfig", buildJsonObject { put("thinkingBudget", RANK_THINKING_BUDGET) })
+                        put("responseMimeType", "application/json")
+                    }
+                )
+            }
+
+            val request = Request.Builder()
+                .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")
+                .addHeader("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
+                .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            // Thinking takes noticeably longer than a plain chat reply.
+            val responseBody = httpClient.newBuilder().readTimeout(90, TimeUnit.SECONDS).build().awaitBody(request)
+            parseRankedHaircuts(extractText(responseBody))
+        }
+    }
+
+    private fun parseRankedHaircuts(json: String): RankedHaircuts {
+        val obj = Json.parseToJsonElement(json).jsonObject
+        val ids = obj["ids"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }.orEmpty()
+        val explanation = obj["message"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (ids.isEmpty() || explanation.isEmpty()) error("Gemini ranking was missing ids or message: $json")
+        return RankedHaircuts(ids, explanation)
+    }
+
     private fun parseExtractedPreferences(json: String): ExtractedPreferences {
         val obj = runCatching { Json.parseToJsonElement(json).jsonObject }.getOrNull() ?: return ExtractedPreferences()
         fun field(name: String): String? = obj[name]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
@@ -276,6 +390,33 @@ class GeminiChatRepositoryImpl(
     }
 
     private companion object {
+        const val RANK_THINKING_BUDGET = 2048
+        const val RANK_KNOWLEDGE_TOP_K = 6
+        const val MAX_RETRIEVAL_QUERY_CHARS = 2000
+
+        val RANK_INSTRUCTIONS: String = """
+            You are the AI hair consultant inside the HairConsultant app. The user just asked to see
+            their hairstyles. Think carefully about everything below, then pick the {count} catalog
+            candidates that best fit this user, ranked best first.
+
+            How to decide:
+            1. Respect the parameters the user stated in this consultation (length, texture,
+               treatment, masculine/feminine look, maintenance, lifestyle, styles they liked or
+               ruled out). A style that contradicts something they explicitly said must rank below
+               every style that doesn't.
+            2. Use the hairstyling knowledge to judge fit for their confirmed face shape and hair
+               type — name real mechanisms, not generic compliments.
+            3. Only pick ids that appear in the candidate list, each at most once.
+
+            Output strict JSON only, exactly this shape:
+            {"ids": ["<id>", ...], "message": "<reply to the user>"}
+            "ids" holds exactly {count} ids (fewer only if fewer candidates exist).
+            "message" is shown in the chat above the {count} style pictures: one short opening
+            sentence tying the picks to what the user asked for, then one sentence per pick in the
+            same order, naming each style exactly as written in the candidate list and saying why
+            it fits. Plain text, no markdown, no bullet characters.
+        """.trimIndent()
+
         val EXTRACT_PREFERENCES_INSTRUCTIONS: String = """
             You read a conversation between a user and an AI hair consultant and extract ONLY the
             hair length/texture/treatment preferences the user explicitly stated for their next
@@ -319,8 +460,8 @@ class GeminiChatRepositoryImpl(
             - Only recommend hairstyles that appear in the "candidate haircuts" list given in the
               context, if one is given — never invent a style name that isn't listed there, and
               never rename, shorten, or combine one into a name that doesn't appear verbatim in
-              that list, since the app displays that exact candidate list as image cards right
-              under your reply and any other name will visibly mismatch the pictures shown.
+              that list, since the app only has pictures of styles in that list and any other name
+              won't match anything the user can see or try on.
             - When you do recommend a specific style, spell its name exactly as it appears in the
               candidate list (matching case and punctuation) so it's recognizable against the
               cards shown beneath your reply.

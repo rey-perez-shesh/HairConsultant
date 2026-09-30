@@ -89,6 +89,13 @@ class ChatBotController(
         }
     }
 
+    /**
+     * Every message from [epochMillis] on, unbounded by the reply window — used to compile one
+     * whole consultation (from its scan onward) without pulling in earlier, unrelated sessions.
+     */
+    fun messagesSince(epochMillis: Long): List<ChatMessage> =
+        _state.value.messages.filter { it.timestampEpochMillis >= epochMillis }
+
     fun setOpen(open: Boolean) {
         _state.update { it.copy(isOpen = open) }
     }
