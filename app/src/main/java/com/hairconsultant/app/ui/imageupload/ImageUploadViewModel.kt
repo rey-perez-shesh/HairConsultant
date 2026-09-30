@@ -12,6 +12,7 @@ import com.hairconsultant.app.data.remote.gemini.ExtractedPreferences
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiImageRepository
 import com.hairconsultant.app.data.remote.gemini.describeForChatContext
+import com.hairconsultant.app.data.remote.gemini.haircutsNamedIn
 import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.UserRepository
 import com.hairconsultant.app.domain.model.ChatSender
@@ -109,7 +110,7 @@ class ImageUploadViewModel(
                         hairScanPhrase(result) +
                         ". Want to see hairstyles that fit you right away, or talk it through with me first? " +
                         "If I got anything wrong, tap \"$FIX_SCAN_LABEL\".",
-                    quickReplies = listOf("Yes, that's right", "No, let me fix it")
+                    quickReplies = listOf(CONFIRM_LABEL, CONSULT_LABEL, FIX_SCAN_LABEL)
                 )
             } catch (error: NoFaceDetectedException) {
                 _uiState.update { it.copy(stage = ImageUploadStage.IDLE) }
@@ -151,17 +152,25 @@ class ImageUploadViewModel(
     }
 
     /**
-     * Free-form AI consultant reply. Grounded on a live catalog shortlist for what's known so far
-     * (so it can discuss real, in-catalog styles) but shows no pictures: catalog images only
-     * appear once [showHairstyles] has actually worked out the user's top matches. While
-     * consulting, every reply carries the [CONFIRM_LABEL] chip so it's always one tap away.
+     * Free-form AI consultant reply, grounded on the *whole* catalog so the consultant can
+     * discuss any style the app has — not just the ones closest to the scan, which would leave it
+     * blind to e.g. long styles when a short-haired user asks for long hair. During the
+     * consultation no pictures are attached: catalog images only appear once [showHairstyles] has
+     * worked out the user's top matches, and every reply carries the [CONFIRM_LABEL] chip so it's
+     * always one tap away. Outside a consultation (before any scan), the pictures shown are
+     * exactly the styles the reply names.
      */
     private suspend fun respondFreeform(text: String) {
-        val context = buildConsultationContext(groundingCandidates())
+        val catalog = recommender.catalog()
+        val context = buildConsultationContext(catalog)
         val conversation = chatBot.buildReplyContext()
-        val quickReplies = if (_uiState.value.stage == ImageUploadStage.CONSULTING) listOf(CONFIRM_LABEL) else emptyList()
+        val consulting = _uiState.value.stage == ImageUploadStage.CONSULTING
+        val quickReplies = if (consulting) listOf(CONFIRM_LABEL) else emptyList()
         chatRepository.reply(conversation.recentMessages, text, context, conversation.summary)
-            .onSuccess { reply -> chatBot.pushBotMessage(reply, quickReplies = quickReplies) }
+            .onSuccess { reply ->
+                val pictures = if (consulting) emptyList() else haircutsNamedIn(reply, catalog)
+                chatBot.pushBotMessage(reply, haircutOptions = pictures, quickReplies = quickReplies)
+            }
             .onFailure { error ->
                 chatBot.pushBotMessage(
                     "I couldn't reach the AI consultant right now (${error.message}).",
@@ -170,34 +179,34 @@ class ImageUploadViewModel(
             }
     }
 
-    /** Already-shown suggestions first, then the best catalog matches for what's known so far. */
-    private suspend fun groundingCandidates(): List<Haircut> {
-        val state = _uiState.value
-        val shortlist = recommender.shortlist(state.scanResult, currentParameters(), profileGender(), CHAT_GROUNDING_SIZE)
-        return (state.suggestions + shortlist).distinctBy { it.id }.take(CHAT_GROUNDING_SIZE)
-    }
-
     /** Everything the app already knows for certain about this consultation, for the AI consultant to reason over. */
-    private fun buildConsultationContext(candidates: List<Haircut>): String {
+    private suspend fun buildConsultationContext(catalog: List<Haircut>): String {
         val state = _uiState.value
+        val scan = state.scanResult
         return buildString {
-            state.scanResult?.let { append("Confirmed face shape: ${it.faceShape.displayName}. ") }
-            (state.desiredLength ?: state.scanResult?.hairLength)?.let { append("Hair length: ${it.displayName}. ") }
-            (state.desiredTexture ?: state.scanResult?.hairTexture)?.let { append("Hair texture: ${it.displayName}. ") }
+            scan?.let { append("Confirmed face shape: ${it.faceShape.displayName}. ") }
+            (state.desiredLength ?: scan?.hairLength)?.let { append("Hair length: ${it.displayName}. ") }
+            (state.desiredTexture ?: scan?.hairTexture)?.let { append("Hair texture: ${it.displayName}. ") }
             state.desiredTreatment?.takeIf { it != TreatmentPreference.NONE }
                 ?.let { append("Planned treatment: ${it.displayName}. ") }
-            if (state.scanResult != null) {
+            if (scan != null) {
                 append(
                     "\nNo hairstyle pictures are shown with your replies; the user sees their top matches as " +
                         "pictures when they tap \"$CONFIRM_LABEL\". If they add or change preferences, you can " +
                         "mention that tapping it will update their picks."
                 )
+                val closest = recommender.shortlist(scan, currentParameters(), profileGender(), CLOSEST_MATCHES_HINT)
+                append(
+                    "\nClosest catalog matches to the confirmed scan so far (a starting point only — anything in " +
+                        "the full catalog below is fair game if it fits what the user asks for): " +
+                        closest.joinToString(", ") { "\"${it.name}\"" } + "."
+                )
             }
             if (state.suggestions.isNotEmpty()) {
                 append("\nCurrently suggested to the user: ${state.suggestions.joinToString(", ") { "\"${it.name}\"" }}.")
             }
-            append("\nCandidate haircuts:\n")
-            append(candidates.describeForChatContext())
+            append("\nHairstyle catalog (every style the app has):\n")
+            append(catalog.describeForChatContext())
         }
     }
 
@@ -562,8 +571,8 @@ private const val CONFIRM_LABEL = "Show My Hairstyles"
 private const val MAX_STYLE_PROMPT_USER_TURNS = 6
 private const val CONSULT_LABEL = "Consult with me first"
 private const val FIX_SCAN_LABEL = "Fix scan results"
-/** How many catalog haircuts ground a consultation chat reply (not shown as pictures). */
-private const val CHAT_GROUNDING_SIZE = 12
+/** How many scan-closest styles are pointed out to the consultant as a starting point. */
+private const val CLOSEST_MATCHES_HINT = 8
 /** Cap on how much of one consultation gets compiled for Show My Hairstyles. */
 private const val MAX_CONSULTATION_MESSAGES = 80
 

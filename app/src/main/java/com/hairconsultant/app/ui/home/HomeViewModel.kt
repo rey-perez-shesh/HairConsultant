@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.data.remote.gemini.describeForChatContext
+import com.hairconsultant.app.data.remote.gemini.haircutsNamedIn
 import com.hairconsultant.app.data.repository.HaircutRepository
 import com.hairconsultant.app.data.repository.UserRepository
 import com.hairconsultant.app.domain.model.FaceShape
@@ -128,46 +129,22 @@ class HomeViewModel(
     }
 
     /**
-     * Routes free-form chat through the AI consultant, grounded on whatever catalog entries
-     * match. [candidates] is computed once and reused for both the model's grounding context and
-     * the gallery shown under its reply — they must be the exact same list, otherwise the model
-     * can end up describing one style while the visible images are an unrelated, independently
-     * chosen slice of the catalog.
-     *
-     * Reasons over [HomeUiState.allClusters] (the whole catalog), not the filtered [HomeUiState.
-     * clusters] the grid is currently showing — the user's browse filters (e.g. texture set to
-     * "Straight") shouldn't blind the AI consultant to styles it could otherwise recommend.
+     * Routes free-form chat through the AI consultant, grounded on the *whole* catalog
+     * ([HomeUiState.allClusters], not the filtered grid) so it can reason over every style the
+     * app has. The pictures under the reply are exactly the styles the reply names
+     * ([haircutsNamedIn]), so images always match what's being discussed.
      */
     private suspend fun respondToChat(text: String) {
         val catalog = _uiState.value.allClusters.flatMap { it.haircuts }
-        val matched = matchHaircuts(catalog, text)
-        val candidates = (matched.ifEmpty { catalog.shuffled() }).take(MAX_CHAT_CANDIDATES)
-        val context = "Candidate haircuts from the catalog:\n${candidates.describeForChatContext()}"
+        val context = "Hairstyle catalog (every style the app has):\n${catalog.describeForChatContext()}"
         val conversation = chatBot.buildReplyContext()
         chatRepository.reply(conversation.recentMessages, text, context, conversation.summary)
-            .onSuccess { reply -> chatBot.pushBotMessage(reply, haircutOptions = candidates) }
+            .onSuccess { reply -> chatBot.pushBotMessage(reply, haircutOptions = haircutsNamedIn(reply, catalog)) }
             .onFailure { error ->
                 chatBot.pushBotMessage(
                     "I couldn't reach the AI consultant right now (${error.message}). " +
-                        "Try the Face Scan or Image Upload tab for a personalized match in the meantime.",
-                    haircutOptions = candidates
+                        "Try the Face Scan or Image Upload tab for a personalized match in the meantime."
                 )
             }
-    }
-
-    private companion object {
-        /** Keeps the grounding context and the on-screen gallery row to the same manageable size. */
-        const val MAX_CHAT_CANDIDATES = 8
-    }
-}
-
-/** Matches catalog entries the user's message is plausibly about, by name or by length/texture/face shape. */
-internal fun matchHaircuts(catalog: List<Haircut>, text: String): List<Haircut> {
-    val lower = text.lowercase()
-    return catalog.filter { haircut ->
-        lower.contains(haircut.name.lowercase()) ||
-            lower.contains(haircut.length.displayName.lowercase()) ||
-            lower.contains(haircut.texture.displayName.lowercase()) ||
-            haircut.recommendedFaceShapes.any { lower.contains(it.displayName.lowercase()) }
     }
 }
