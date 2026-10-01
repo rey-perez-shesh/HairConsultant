@@ -91,6 +91,11 @@ class HairstyleRecommender(
      * The catalog ordered by how well each style matches [parameters] and [scan], best first,
      * limited to [limit]. Stated length and texture weigh most, so exact matches always lead and
      * near-misses only fill in when too few exact matches exist.
+     *
+     * For a male or female [gender], styles tagged for the other gender are dropped before
+     * ranking rather than just scored lower, so the fill-in near-misses are always the closest
+     * gender-appropriate styles (e.g. a long wavy men's cut for a man who asked for long straight),
+     * never a women's style for a man or the reverse.
      */
     suspend fun shortlist(scan: ScanResult, parameters: ExtractedPreferences, gender: Gender?, limit: Int): List<Haircut> {
         val catalog = catalog()
@@ -99,7 +104,9 @@ class HairstyleRecommender(
         val length = parameters.length.takeUnless { bald }
         val texture = parameters.texture.takeUnless { bald }
         val allowedStyles = gender?.takeIf { it == Gender.MALE || it == Gender.FEMALE }?.matchingHaircutStyles()
-        return catalog
+        val eligible = allowedStyles?.let { styles -> catalog.filter { it.genderStyle in styles } }
+            ?.takeIf { it.isNotEmpty() } ?: catalog
+        return eligible
             .sortedByDescending { haircut ->
                 var score = 0
                 if (length != null && haircut.length == length) score += LENGTH_WEIGHT
@@ -110,7 +117,6 @@ class HairstyleRecommender(
                     else -> Unit
                 }
                 if (scan.faceShape in haircut.recommendedFaceShapes) score += FACE_SHAPE_WEIGHT
-                if (allowedStyles != null && haircut.genderStyle in allowedStyles) score += GENDER_WEIGHT
                 score
             }
             .take(limit)
@@ -140,6 +146,5 @@ class HairstyleRecommender(
         private const val TEXTURE_WEIGHT = 6
         private const val FACE_SHAPE_WEIGHT = 3
         private const val TREATMENT_WEIGHT = 2
-        private const val GENDER_WEIGHT = 2
     }
 }

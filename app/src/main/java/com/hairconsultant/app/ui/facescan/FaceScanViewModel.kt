@@ -174,13 +174,15 @@ class FaceScanViewModel(
             (state.desiredTexture ?: scan?.hairTexture)?.let { append("Hair texture: ${it.displayName}. ") }
             state.desiredTreatment?.takeIf { it != TreatmentPreference.NONE }
                 ?.let { append("Planned treatment: ${it.displayName}. ") }
+            val gender = profileGender()
+            gender.describeForChatContext()?.let { append("\n").append(it) }
             if (scan != null) {
                 append(
                     "\nNo hairstyle pictures are shown with your replies; the user sees their top matches as " +
                         "pictures when they tap \"$CONFIRM_LABEL\". If they add or change preferences, you can " +
                         "mention that tapping it will update their picks."
                 )
-                val closest = recommender.shortlist(scan, currentParameters(), profileGender(), CLOSEST_MATCHES_HINT)
+                val closest = recommender.shortlist(scan, currentParameters(), gender, CLOSEST_MATCHES_HINT)
                 append(
                     "\nClosest catalog matches to the confirmed scan so far (a starting point only — anything in " +
                         "the full catalog below is fair game if it fits what the user asks for): " +
@@ -395,7 +397,7 @@ class FaceScanViewModel(
 
     private suspend fun profileGender(): Gender? {
         val uid = authRepository.currentUser.value?.uid ?: return null
-        return userRepository.observe(uid).first()?.gender
+        return userRepository.get(uid)?.gender
     }
 
     fun onHaircutTryOn(haircut: Haircut) {
@@ -437,7 +439,7 @@ class FaceScanViewModel(
         val uid = authRepository.currentUser.value?.uid ?: return
         val state = _uiState.value
         viewModelScope.launch {
-            val current = userRepository.observe(uid).first() ?: return@launch
+            val current = userRepository.get(uid) ?: return@launch
             userRepository.save(
                 current.copy(
                     preferredHairLength = state.desiredLength ?: current.preferredHairLength,

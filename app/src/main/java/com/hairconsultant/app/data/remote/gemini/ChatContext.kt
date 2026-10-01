@@ -1,6 +1,23 @@
 package com.hairconsultant.app.data.remote.gemini
 
+import com.hairconsultant.app.domain.model.Gender
 import com.hairconsultant.app.domain.model.Haircut
+import com.hairconsultant.app.domain.model.matchingHaircutStyles
+
+/**
+ * The chat context line telling the model which catalog styles suit the user's profile gender,
+ * or null when gender shouldn't narrow anything (non-binary, prefer not to say, or unknown).
+ * Without it the model sees each style's Masculine/Feminine/Unisex tag but not who it's talking
+ * to, so it could suggest a women's cut to a man who never mentioned his gender in chat.
+ */
+fun Gender?.describeForChatContext(): String? = when (this) {
+    Gender.MALE, Gender.FEMALE -> {
+        val styles = matchingHaircutStyles().joinToString(" or ") { it.displayName }
+        "User's gender (from their profile): $displayName. Recommend only $styles styles from the catalog " +
+            "unless the user explicitly asks about a style tagged for another gender."
+    }
+    else -> null
+}
 
 /**
  * Formats catalog haircuts as grounding context for [GeminiChatRepository.reply]. Chat replies

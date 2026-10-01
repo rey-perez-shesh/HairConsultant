@@ -1,10 +1,12 @@
 package com.hairconsultant.app.data.remote.gemini
 
 import com.hairconsultant.app.domain.model.FaceShape
+import com.hairconsultant.app.domain.model.Gender
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -51,6 +53,23 @@ class ChatContextTest {
         val result = haircutsNamedIn("Rebonding usually lasts 6-12 months.", catalog)
 
         assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun genderLineNamesTheProfileGendersStylesPlusUnisex() {
+        assertEquals(
+            "User's gender (from their profile): Male. Recommend only Masculine or Unisex styles from the catalog " +
+                "unless the user explicitly asks about a style tagged for another gender.",
+            Gender.MALE.describeForChatContext()
+        )
+        assertTrue(Gender.FEMALE.describeForChatContext()!!.contains("Recommend only Feminine or Unisex styles"))
+    }
+
+    @Test
+    fun noGenderLineWhenGenderShouldNotNarrowTheCatalog() {
+        assertNull(Gender.NON_BINARY.describeForChatContext())
+        assertNull(Gender.PREFER_NOT_TO_SAY.describeForChatContext())
+        assertNull((null as Gender?).describeForChatContext())
     }
 
     private fun haircut(name: String, length: HairLength, texture: HairTexture, faceShapes: List<FaceShape>) = Haircut(

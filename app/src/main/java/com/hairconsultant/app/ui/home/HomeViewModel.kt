@@ -35,6 +35,8 @@ data class HomeUiState(
     val cameraTryOnHaircut: Haircut? = null,
     /** Defaults to the signed-in user's profile gender once loaded, so Home opens already personalized. */
     val genderFilter: Gender? = null,
+    /** True once the user picks from the gender dropdown, so the late-loading profile default never overrides them. */
+    val genderFilterChosen: Boolean = false,
     val faceShapeFilter: FaceShape? = null,
     val hairLengthFilter: HairLength? = null,
     val hairTextureFilter: HairTexture? = null
@@ -72,14 +74,20 @@ class HomeViewModel(
             }
         }
         viewModelScope.launch {
-            val uid = authRepository.currentUser.value?.uid ?: return@launch
-            val gender = userRepository.observe(uid).first()?.gender ?: return@launch
-            setGenderFilter(gender)
+            val gender = profileGender() ?: return@launch
+            // The profile loads asynchronously; if the user already picked a gender filter
+            // (including "All") in the meantime, their choice wins over the profile default.
+            updateFilters { if (it.genderFilterChosen) it else it.copy(genderFilter = gender) }
         }
     }
 
+    private suspend fun profileGender(): Gender? {
+        val uid = authRepository.currentUser.value?.uid ?: return null
+        return userRepository.get(uid)?.gender
+    }
+
     /** The dropdown row's four filters — pass `null` to mean "All" for that category. */
-    fun setGenderFilter(gender: Gender?) = updateFilters { it.copy(genderFilter = gender) }
+    fun setGenderFilter(gender: Gender?) = updateFilters { it.copy(genderFilter = gender, genderFilterChosen = true) }
     fun setFaceShapeFilter(faceShape: FaceShape?) = updateFilters { it.copy(faceShapeFilter = faceShape) }
     fun setHairLengthFilter(length: HairLength?) = updateFilters { it.copy(hairLengthFilter = length) }
     fun setHairTextureFilter(texture: HairTexture?) = updateFilters { it.copy(hairTextureFilter = texture) }
@@ -136,7 +144,10 @@ class HomeViewModel(
      */
     private suspend fun respondToChat(text: String) {
         val catalog = _uiState.value.allClusters.flatMap { it.haircuts }
-        val context = "Hairstyle catalog (every style the app has):\n${catalog.describeForChatContext()}"
+        val context = buildString {
+            profileGender().describeForChatContext()?.let { append(it).append("\n") }
+            append("Hairstyle catalog (every style the app has):\n${catalog.describeForChatContext()}")
+        }
         val conversation = chatBot.buildReplyContext()
         chatRepository.reply(conversation.recentMessages, text, context, conversation.summary)
             .onSuccess { reply -> chatBot.pushBotMessage(reply, haircutOptions = haircutsNamedIn(reply, catalog)) }

@@ -191,7 +191,7 @@ object SampleData {
             Seed(
                 "Curtains", listOf(OVAL, HEART, DIAMOND),
                 "A center-parted curtains cut frames the face with soft length at the temples and chin, balancing a heart or diamond face's narrower jaw while an oval face wears the shape with ease.",
-                genderStyle = UNISEX,
+                genderStyle = MASCULINE,
                 imageUrl = THUMB_CURTAINS
             ),
             Seed(
@@ -250,6 +250,7 @@ object SampleData {
             Seed(
                 "Textured Pixie", listOf(SQUARE, HEART, DIAMOND),
                 "Choppy, piece-y layers soften a square jaw, while the side-swept fringe covers a wide forehead — flattering on heart and diamond shapes too.",
+                genderStyle = FEMININE,
                 imageUrl = THUMB_TEXTURED_PIXIE
             )
         ),
@@ -281,7 +282,7 @@ object SampleData {
             Seed(
                 "Wavy Fringe Crop", listOf(DIAMOND, HEART, OVAL),
                 "A full wavy fringe adds width at the forehead for diamond and heart shapes, while an oval face can carry the fringe without losing its balance.",
-                genderStyle = UNISEX,
+                genderStyle = MASCULINE,
                 imageUrl = THUMB_WAVY_FRINGE_CROP
             ),
             Seed(
@@ -319,7 +320,7 @@ object SampleData {
             Seed(
                 "Curly Fringe Crop", listOf(DIAMOND, HEART),
                 "A curly fringe adds volume across the forehead, balancing a diamond face's narrow brow line and softening a heart face's broader one.",
-                genderStyle = UNISEX,
+                genderStyle = MASCULINE,
                 imageUrl = THUMB_CURLY_FRINGE_CROP
             ),
             Seed(
@@ -344,7 +345,7 @@ object SampleData {
             Seed(
                 "V-cut Layers", listOf(ROUND, SQUARE),
                 "The deep V-point draws the eye downward for an elongating effect on round faces, while cascading layered ends soften a square jaw.",
-                genderStyle = UNISEX,
+                genderStyle = FEMININE,
                 imageUrl = THUMB_V_CUT_LAYERS
             ),
             Seed(
@@ -362,7 +363,7 @@ object SampleData {
             Seed(
                 "Face Framing Layered Cut", listOf(HEART, DIAMOND),
                 "Layers cut to hit right at the cheekbones add fullness exactly where heart and diamond faces taper in, creating a softer, more balanced outline.",
-                genderStyle = UNISEX,
+                genderStyle = FEMININE,
                 imageUrl = THUMB_FACE_FRAMING_LAYERED_CUT
             ),
             Seed(
@@ -418,7 +419,7 @@ object SampleData {
             Seed(
                 "Wavy Face-Framing Layers", listOf(HEART, DIAMOND),
                 "Wave-textured layers concentrated at the jawline build fullness exactly where heart and diamond faces need extra width.",
-                genderStyle = UNISEX,
+                genderStyle = FEMININE,
                 imageUrl = THUMB_WAVY_FACE_FRAMING_LAYERS
             ),
             Seed(
@@ -562,7 +563,7 @@ object SampleData {
             Seed(
                 "Face-Framing Wavy Layers", listOf(HEART, SQUARE),
                 "Wave-textured layers cut to hit at the jaw add fullness exactly where a heart face's chin narrows, and soften a square jawline's corners.",
-                genderStyle = UNISEX,
+                genderStyle = FEMININE,
                 imageUrl = THUMB_FACE_FRAMING_WAVY_LAYERS
             ),
             Seed(
@@ -610,7 +611,7 @@ object SampleData {
             Seed(
                 "Long Curly V-Cut", listOf(ROUND, DIAMOND),
                 "A deep V-shaped cutting line draws curls downward for an elongating effect on round faces and flares width at the base for diamond cheekbones.",
-                genderStyle = UNISEX,
+                genderStyle = FEMININE,
                 imageUrl = THUMB_LONG_CURLY_V_CUT
             ),
             Seed(

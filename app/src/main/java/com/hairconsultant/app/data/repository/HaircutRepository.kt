@@ -52,8 +52,10 @@ class HaircutRepositoryImpl(
         // current catalog to Firestore (creating/updating/deleting documents as needed) purely as
         // a synced backup, then writes it straight into Room — the app never depends on a network
         // round trip to know what to show, so a flaky reconcile doesn't affect the catalog seen.
-        runCatching { remote.reconcile(SampleData.allHaircuts) }
+        // Room goes first: offline, Firestore writes don't complete until the device reconnects,
+        // so awaiting the reconcile first left a fresh install's Home on a spinner indefinitely.
         haircutDao.replaceAll(SampleData.allHaircuts.map { it.toEntity() })
+        runCatching { remote.reconcile(SampleData.allHaircuts) }
     }
 }
 
