@@ -29,6 +29,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -39,6 +40,17 @@ import com.hairconsultant.app.domain.model.ChatMessage
 import com.hairconsultant.app.domain.model.ChatSender
 import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.ui.components.HaircutCard
+
+/**
+ * The sheet state every screen should open [ChatBotSheet] with. It skips the half-expanded stop:
+ * once a conversation is taller than half the screen, that stop leaves the input row below the
+ * bottom edge, and the keyboard opening doesn't move the sheet, so the user can't see what
+ * they're typing or reach Send. The content is capped at 560dp, so fully expanded still leaves
+ * the screen behind it visible.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun rememberChatBotSheetState(): SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

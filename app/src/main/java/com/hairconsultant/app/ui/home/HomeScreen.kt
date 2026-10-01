@@ -14,7 +14,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,6 +28,7 @@ import com.hairconsultant.app.domain.model.Gender
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.ui.chatbot.ChatBotSheet
+import com.hairconsultant.app.ui.chatbot.rememberChatBotSheetState
 import com.hairconsultant.app.ui.components.ChatFab
 import com.hairconsultant.app.ui.components.ClusterRow
 import com.hairconsultant.app.ui.components.FilterDropdown
@@ -40,7 +40,7 @@ import kotlinx.coroutines.launch
 fun HomeScreen(viewModel: HomeViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val chatState by viewModel.chatState.collectAsState()
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = rememberChatBotSheetState()
     val scope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {

@@ -21,7 +21,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,6 +32,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hairconsultant.app.ui.chatbot.ChatBotSheet
+import com.hairconsultant.app.ui.chatbot.rememberChatBotSheetState
 import com.hairconsultant.app.ui.components.ChatFab
 import com.hairconsultant.app.ui.facescan.TryOnStrip
 import kotlinx.coroutines.launch
@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
 fun ImageUploadScreen(viewModel: ImageUploadViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val chatState by viewModel.chatState.collectAsState()
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = rememberChatBotSheetState()
     val scope = rememberCoroutineScope()
 
     val pickImageLauncher = rememberLauncherForActivityResult(
