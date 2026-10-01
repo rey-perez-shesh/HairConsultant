@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.data.remote.gemini.describeForChatContext
+import com.hairconsultant.app.data.remote.gemini.haircutsNamedIn
 import com.hairconsultant.app.data.repository.HaircutRepository
 import com.hairconsultant.app.data.repository.UserRepository
 import com.hairconsultant.app.domain.model.FaceShape
@@ -34,6 +35,8 @@ data class HomeUiState(
     val cameraTryOnHaircut: Haircut? = null,
     /** Defaults to the signed-in user's profile gender once loaded, so Home opens already personalized. */
     val genderFilter: Gender? = null,
+    /** True once the user picks from the gender dropdown, so the late-loading profile default never overrides them. */
+    val genderFilterChosen: Boolean = false,
     val faceShapeFilter: FaceShape? = null,
     val hairLengthFilter: HairLength? = null,
     val hairTextureFilter: HairTexture? = null
@@ -71,14 +74,20 @@ class HomeViewModel(
             }
         }
         viewModelScope.launch {
-            val uid = authRepository.currentUser.value?.uid ?: return@launch
-            val gender = userRepository.observe(uid).first()?.gender ?: return@launch
-            setGenderFilter(gender)
+            val gender = profileGender() ?: return@launch
+            // The profile loads asynchronously; if the user already picked a gender filter
+            // (including "All") in the meantime, their choice wins over the profile default.
+            updateFilters { if (it.genderFilterChosen) it else it.copy(genderFilter = gender) }
         }
     }
 
+    private suspend fun profileGender(): Gender? {
+        val uid = authRepository.currentUser.value?.uid ?: return null
+        return userRepository.get(uid)?.gender
+    }
+
     /** The dropdown row's four filters — pass `null` to mean "All" for that category. */
-    fun setGenderFilter(gender: Gender?) = updateFilters { it.copy(genderFilter = gender) }
+    fun setGenderFilter(gender: Gender?) = updateFilters { it.copy(genderFilter = gender, genderFilterChosen = true) }
     fun setFaceShapeFilter(faceShape: FaceShape?) = updateFilters { it.copy(faceShapeFilter = faceShape) }
     fun setHairLengthFilter(length: HairLength?) = updateFilters { it.copy(hairLengthFilter = length) }
     fun setHairTextureFilter(texture: HairTexture?) = updateFilters { it.copy(hairTextureFilter = texture) }
@@ -128,41 +137,25 @@ class HomeViewModel(
     }
 
     /**
-     * Routes free-form chat through the AI consultant, grounded on whatever catalog entries
-     * match. [candidates] is computed once and reused for both the model's grounding context and
-     * the gallery shown under its reply — they must be the exact same list, otherwise the model
-     * can end up describing one style while the visible images are an unrelated, independently
-     * chosen slice of the catalog.
+     * Routes free-form chat through the AI consultant, grounded on the *whole* catalog
+     * ([HomeUiState.allClusters], not the filtered grid) so it can reason over every style the
+     * app has. The pictures under the reply are exactly the styles the reply names
+     * ([haircutsNamedIn]), so images always match what's being discussed.
      */
     private suspend fun respondToChat(text: String) {
-        val catalog = _uiState.value.clusters.flatMap { it.haircuts }
-        val matched = matchHaircuts(catalog, text)
-        val candidates = (matched.ifEmpty { catalog.shuffled() }).take(MAX_CHAT_CANDIDATES)
-        val context = "Candidate haircuts from the catalog:\n${candidates.describeForChatContext()}"
-        chatRepository.reply(chatBot.state.value.messages, text, context)
-            .onSuccess { reply -> chatBot.pushBotMessage(reply, haircutOptions = candidates) }
+        val catalog = _uiState.value.allClusters.flatMap { it.haircuts }
+        val context = buildString {
+            profileGender().describeForChatContext()?.let { append(it).append("\n") }
+            append("Hairstyle catalog (every style the app has):\n${catalog.describeForChatContext()}")
+        }
+        val conversation = chatBot.buildReplyContext()
+        chatRepository.reply(conversation.recentMessages, text, context, conversation.summary)
+            .onSuccess { reply -> chatBot.pushBotMessage(reply, haircutOptions = haircutsNamedIn(reply, catalog)) }
             .onFailure { error ->
                 chatBot.pushBotMessage(
                     "I couldn't reach the AI consultant right now (${error.message}). " +
-                        "Try the Face Scan or Image Upload tab for a personalized match in the meantime.",
-                    haircutOptions = candidates
+                        "Try the Face Scan or Image Upload tab for a personalized match in the meantime."
                 )
             }
-    }
-
-    private companion object {
-        /** Keeps the grounding context and the on-screen gallery row to the same manageable size. */
-        const val MAX_CHAT_CANDIDATES = 8
-    }
-}
-
-/** Matches catalog entries the user's message is plausibly about, by name or by length/texture/face shape. */
-internal fun matchHaircuts(catalog: List<Haircut>, text: String): List<Haircut> {
-    val lower = text.lowercase()
-    return catalog.filter { haircut ->
-        lower.contains(haircut.name.lowercase()) ||
-            lower.contains(haircut.length.displayName.lowercase()) ||
-            lower.contains(haircut.texture.displayName.lowercase()) ||
-            haircut.recommendedFaceShapes.any { lower.contains(it.displayName.lowercase()) }
     }
 }

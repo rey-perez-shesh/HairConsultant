@@ -1,26 +1,19 @@
 package com.hairconsultant.app.data.remote.firebase
 
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.SetOptions
-import com.hairconsultant.app.domain.model.FaceShape
-import com.hairconsultant.app.domain.model.HairLength
-import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
-import com.hairconsultant.app.domain.model.HaircutGenderStyle
-import com.hairconsultant.app.domain.model.TreatmentPreference
 import kotlinx.coroutines.tasks.await
 
 /**
- * Firestore-backed haircut catalog. [seedIfEmpty] migrates the curated, face-shape-justified
- * catalog ([com.hairconsultant.app.data.SampleData]) into the "haircuts" collection the first
- * time the app runs against an empty Firestore project; every later launch just reads whatever
- * is currently in Firestore, so the catalog can be edited from the console without an app update.
+ * Firestore-backed mirror of the haircut catalog. [reconcile] is called on every
+ * [com.hairconsultant.app.data.repository.HaircutRepositoryImpl.refresh] and makes the "haircuts"
+ * collection exactly match [com.hairconsultant.app.data.SampleData] — the catalog in code is the
+ * single source of truth, and Firestore is kept as a synced mirror/backup of it rather than an
+ * independently-editable copy that can drift out of sync.
  */
 interface HaircutRemoteRepository {
-    suspend fun fetchAll(): List<Haircut>
-    suspend fun seedIfEmpty(haircuts: List<Haircut>)
-    /** Merge-update specific catalog rows (e.g. Meshy GLB name/thumbnail patches) without wiping the catalog. */
-    suspend fun upsertHaircuts(haircuts: List<Haircut>)
+    /** Upserts every entry in [haircuts] and deletes any existing document not in it. */
+    suspend fun reconcile(haircuts: List<Haircut>)
 }
 
 class FirestoreHaircutRepository(
@@ -29,49 +22,14 @@ class FirestoreHaircutRepository(
 
     private val collection get() = firestore.collection("haircuts")
 
-    override suspend fun fetchAll(): List<Haircut> {
-        val snapshot = collection.get().await()
-        return snapshot.documents.map { doc ->
-            Haircut(
-                id = doc.id,
-                name = doc.getString("name").orEmpty(),
-                imageUrl = doc.getString("imageUrl").orEmpty(),
-                length = runCatching { HairLength.valueOf(doc.getString("length").orEmpty()) }
-                    .getOrDefault(HairLength.MEDIUM),
-                texture = runCatching { HairTexture.valueOf(doc.getString("texture").orEmpty()) }
-                    .getOrDefault(HairTexture.STRAIGHT),
-                recommendedFaceShapes = (doc.get("recommendedFaceShapes") as? List<*>)
-                    ?.mapNotNull { shape -> (shape as? String)?.let { runCatching { FaceShape.valueOf(it) }.getOrNull() } }
-                    .orEmpty(),
-                genderStyle = doc.getString("genderStyle")
-                    ?.let { runCatching { HaircutGenderStyle.valueOf(it) }.getOrNull() } ?: HaircutGenderStyle.UNISEX,
-                treatment = doc.getString("treatment")
-                    ?.let { runCatching { TreatmentPreference.valueOf(it) }.getOrNull() } ?: TreatmentPreference.NONE,
-                description = doc.getString("description").orEmpty()
-            )
-        }
-    }
-
-    override suspend fun seedIfEmpty(haircuts: List<Haircut>) {
-        val existing = collection.limit(1).get().await()
-        if (!existing.isEmpty) return
+    // A single Firestore batch caps out at 500 writes; fine for this catalog's size (~90 entries
+    // plus a handful of deletes), but would need chunking if the catalog grew far beyond that.
+    override suspend fun reconcile(haircuts: List<Haircut>) {
+        val existingIds = collection.get().await().documents.map { it.id }.toSet()
+        val currentIds = haircuts.map { it.id }.toSet()
         val batch = firestore.batch()
-        haircuts.forEach { haircut ->
-            batch.set(collection.document(haircut.id), haircut.toFirestoreMap())
-        }
-        batch.commit().await()
-    }
-
-    override suspend fun upsertHaircuts(haircuts: List<Haircut>) {
-        if (haircuts.isEmpty()) return
-        val batch = firestore.batch()
-        haircuts.forEach { haircut ->
-            batch.set(
-                collection.document(haircut.id),
-                haircut.toFirestoreMap(),
-                SetOptions.merge()
-            )
-        }
+        haircuts.forEach { haircut -> batch.set(collection.document(haircut.id), haircut.toFirestoreMap()) }
+        (existingIds - currentIds).forEach { staleId -> batch.delete(collection.document(staleId)) }
         batch.commit().await()
     }
 }
@@ -91,14 +49,8 @@ private fun Haircut.toFirestoreMap(): Map<String, Any> = mapOf(
 class MockHaircutRemoteRepository : HaircutRemoteRepository {
     private val store = mutableMapOf<String, Haircut>()
 
-    override suspend fun fetchAll(): List<Haircut> = store.values.toList()
-
-    override suspend fun seedIfEmpty(haircuts: List<Haircut>) {
-        if (store.isNotEmpty()) return
-        haircuts.forEach { store[it.id] = it }
-    }
-
-    override suspend fun upsertHaircuts(haircuts: List<Haircut>) {
+    override suspend fun reconcile(haircuts: List<Haircut>) {
+        store.clear()
         haircuts.forEach { store[it.id] = it }
     }
 }

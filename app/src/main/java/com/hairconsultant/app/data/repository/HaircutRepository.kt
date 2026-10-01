@@ -48,84 +48,15 @@ class HaircutRepositoryImpl(
     }
 
     override suspend fun refresh() {
-        // One-time migration: populates Firestore's "haircuts" collection from the curated
-        // catalog the first time this runs against an empty project; a no-op afterwards.
-        runCatching { remote.seedIfEmpty(SampleData.allHaircuts) }
-        // Patch only the Meshy-replaced rows (names/thumbnails) without rebuilding the catalog.
-        val meshyPatches = SampleData.allHaircuts.filter { it.id in SampleData.MESHY_REPLACED_IDS }
-        runCatching { remote.upsertHaircuts(meshyPatches) }
-        // Merge in newly added catalog cards when Firestore was seeded from an older SampleData snapshot.
-        val newCatalogEntries = SampleData.allHaircuts.filter { it.id in SampleData.NEW_CATALOG_IDS }
-        runCatching { remote.upsertHaircuts(newCatalogEntries) }
-        val genderPatches = SampleData.allHaircuts.filter { it.id in SampleData.GENDER_UNISEX_PATCH_IDS }
-        runCatching { remote.upsertHaircuts(genderPatches) }
-        val thumbPatches = SampleData.allHaircuts.filter { it.id in SampleData.THUMB_PATCH_IDS }
-        runCatching { remote.upsertHaircuts(thumbPatches) }
-        val remoteHaircuts = runCatching { remote.fetchAll() }.getOrNull()
-        val haircuts = applyThumbCatalogPatches(
-            applyMeshyCatalogPatches(
-                applyGenderStylePatches(
-                    mergeNewCatalogEntries(
-                        remoteHaircuts?.takeIf { it.isNotEmpty() } ?: SampleData.allHaircuts
-                    )
-                )
-            )
-        )
-        haircutDao.insertAll(haircuts.map { it.toEntity() })
+        // SampleData is the single source of truth for the catalog. Every launch pushes the exact
+        // current catalog to Firestore (creating/updating/deleting documents as needed) purely as
+        // a synced backup, then writes it straight into Room — the app never depends on a network
+        // round trip to know what to show, so a flaky reconcile doesn't affect the catalog seen.
+        // Room goes first: offline, Firestore writes don't complete until the device reconnects,
+        // so awaiting the reconcile first left a fresh install's Home on a spinner indefinitely.
+        haircutDao.replaceAll(SampleData.allHaircuts.map { it.toEntity() })
+        runCatching { remote.reconcile(SampleData.allHaircuts) }
     }
-}
-
-/** Prefer SampleData thumbnail for catalog cards with corrected reference images. */
-private fun applyThumbCatalogPatches(haircuts: List<Haircut>): List<Haircut> {
-    val patches = SampleData.allHaircuts
-        .filter { it.id in SampleData.THUMB_PATCH_IDS }
-        .associateBy { it.id }
-    if (patches.isEmpty()) return haircuts
-    return haircuts.map { haircut ->
-        val patch = patches[haircut.id] ?: return@map haircut
-        haircut.copy(
-            name = patch.name,
-            imageUrl = patch.imageUrl
-        )
-    }
-}
-
-/** Prefer SampleData name/thumbnail/description for the three Meshy-replaced IDs. */
-private fun applyMeshyCatalogPatches(haircuts: List<Haircut>): List<Haircut> {
-    val patches = SampleData.allHaircuts
-        .filter { it.id in SampleData.MESHY_REPLACED_IDS }
-        .associateBy { it.id }
-    if (patches.isEmpty()) return haircuts
-    return haircuts.map { haircut ->
-        val patch = patches[haircut.id] ?: return@map haircut
-        haircut.copy(
-            name = patch.name,
-            imageUrl = patch.imageUrl,
-            description = patch.description,
-            genderStyle = patch.genderStyle
-        )
-    }
-}
-
-/** Keep Curtains / Side Bangs visible for Male and Female filters (UNISEX). */
-private fun applyGenderStylePatches(haircuts: List<Haircut>): List<Haircut> {
-    val patches = SampleData.allHaircuts
-        .filter { it.id in SampleData.GENDER_UNISEX_PATCH_IDS }
-        .associateBy { it.id }
-    if (patches.isEmpty()) return haircuts
-    return haircuts.map { haircut ->
-        val patch = patches[haircut.id] ?: return@map haircut
-        haircut.copy(genderStyle = patch.genderStyle)
-    }
-}
-
-/** Add catalog cards introduced after the initial Firestore seed. */
-private fun mergeNewCatalogEntries(haircuts: List<Haircut>): List<Haircut> {
-    val additions = SampleData.allHaircuts.filter { it.id in SampleData.NEW_CATALOG_IDS }
-    if (additions.isEmpty()) return haircuts
-    val byId = haircuts.associateBy { it.id }.toMutableMap()
-    additions.forEach { byId[it.id] = it }
-    return byId.values.toList()
 }
 
 private fun HaircutEntity.toDomain() = Haircut(

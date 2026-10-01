@@ -6,14 +6,17 @@ import com.hairconsultant.app.data.analysis.FaceAnalyzer
 import com.hairconsultant.app.data.analysis.FaceLandmarkStore
 import com.hairconsultant.app.data.analysis.NoFaceDetectedException
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
+import com.hairconsultant.app.data.recommendation.HairstyleRecommender
+import com.hairconsultant.app.data.remote.gemini.ExtractedPreferences
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.data.remote.gemini.describeForChatContext
+import com.hairconsultant.app.data.remote.gemini.haircutsNamedIn
 import com.hairconsultant.app.data.repository.ConsultationRepository
-import com.hairconsultant.app.data.repository.HaircutRepository
 import com.hairconsultant.app.data.repository.UserRepository
 import com.hairconsultant.app.domain.model.Consultation
 import com.hairconsultant.app.domain.model.ConsultationSource
 import com.hairconsultant.app.domain.model.FaceShape
+import com.hairconsultant.app.domain.model.Gender
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairColor
 import com.hairconsultant.app.domain.model.HairTexture
@@ -22,6 +25,7 @@ import com.hairconsultant.app.domain.model.ScanResult
 import com.hairconsultant.app.domain.model.TreatmentPreference
 import com.hairconsultant.app.ui.chatbot.ChatBotController
 import com.hairconsultant.app.ui.chatbot.ChatBotUiState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -31,7 +35,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-enum class FaceScanStage { IDLE, ANALYZING, CONFIRM_RESULT, ASK_FIX, CONSULTING, SUGGESTIONS }
+enum class FaceScanStage { IDLE, ANALYZING, CONFIRM_RESULT, ASK_FIX, CONSULTING, RECOMMENDING, SUGGESTIONS }
 
 enum class ScanFixTarget { FACE_SHAPE, HAIR_LENGTH, HAIR_TEXTURE }
 
@@ -50,7 +54,7 @@ data class FaceScanUiState(
 
 class FaceScanViewModel(
     private val faceAnalyzer: FaceAnalyzer,
-    private val haircutRepository: HaircutRepository,
+    private val recommender: HairstyleRecommender,
     val landmarkStore: FaceLandmarkStore,
     private val chatRepository: GeminiChatRepository,
     val chatBot: ChatBotController,
@@ -73,10 +77,14 @@ class FaceScanViewModel(
 
     private var consultationId = UUID.randomUUID().toString()
 
+    /** When the current scan started; everything from here on is this consultation's conversation. */
+    private var consultationStartedAt = 0L
+
     fun startScan() {
         if (_uiState.value.stage == FaceScanStage.ANALYZING) return
         _uiState.update { it.copy(stage = FaceScanStage.ANALYZING) }
         chatBot.setOpen(true)
+        consultationStartedAt = System.currentTimeMillis()
         chatBot.pushBotMessage("Analyzing your face and hair, hold still...")
         viewModelScope.launch {
             try {
@@ -85,8 +93,9 @@ class FaceScanViewModel(
                 chatBot.pushBotMessage(
                     "I detected a ${result.faceShape.displayName} face shape" +
                         hairScanPhrase(result) +
-                        ". Did I get it right?",
-                    quickReplies = listOf("Yes, that's right", "No, let me fix it")
+                        ". Want to see hairstyles that fit you right away, or talk it through with me first? " +
+                        "If I got anything wrong, tap \"$FIX_SCAN_LABEL\".",
+                    quickReplies = listOf(CONFIRM_LABEL, CONSULT_LABEL, FIX_SCAN_LABEL)
                 )
             } catch (error: NoFaceDetectedException) {
                 _uiState.update { it.copy(stage = FaceScanStage.IDLE) }
@@ -106,66 +115,116 @@ class FaceScanViewModel(
         when (_uiState.value.stage) {
             FaceScanStage.CONFIRM_RESULT -> onResultConfirmationReply(text)
             FaceScanStage.ASK_FIX -> onFixReply(text)
-            FaceScanStage.CONSULTING -> onConsultingReply(text)
+            FaceScanStage.CONSULTING, FaceScanStage.SUGGESTIONS -> onConsultingReply(text)
+            FaceScanStage.RECOMMENDING -> chatBot.pushBotMessage("Still thinking about your matches — one moment.")
             else -> respondFreeform(text)
         }
     }
 
     /**
-     * Once the face-shape/length/texture scan is confirmed, the user talks freely with the AI
-     * consultant — no more rigid quick-reply questions — until they tap [CONFIRM_LABEL], at which
-     * point [confirmConsultation] collects everything discussed and generates real suggestions.
+     * The consultation loop: the user talks freely with the AI consultant for as long as they
+     * like, and every tap of [CONFIRM_LABEL] runs [showHairstyles]. Anything said after
+     * suggestions are shown reopens the consultation, so new or changed parameters get a fresh
+     * round of thinking the next time [CONFIRM_LABEL] is tapped.
      */
     private suspend fun onConsultingReply(text: String) {
         if (text.equals(CONFIRM_LABEL, ignoreCase = true)) {
-            confirmConsultation()
+            showHairstyles()
         } else {
+            _uiState.update { it.copy(stage = FaceScanStage.CONSULTING) }
             respondFreeform(text)
         }
     }
 
     /**
-     * Anything outside the guided scan/fix flow (before a scan runs, or once suggestions are
-     * already shown) goes to the AI consultant instead of a canned reply, so users can ask real
-     * questions ("is rebonding safe for wavy hair?", "what's low-maintenance for the gym?") and
-     * get an answer reasoned from [com.hairconsultant.app.data.HairKnowledgeBase].
+     * Free-form AI consultant reply, grounded on the *whole* catalog so the consultant can
+     * discuss any style the app has — not just the ones closest to the scan, which would leave it
+     * blind to e.g. long styles when a short-haired user asks for long hair. During the
+     * consultation no pictures are attached: catalog images only appear once [showHairstyles] has
+     * worked out the user's top matches, and every reply carries the [CONFIRM_LABEL] chip so it's
+     * always one tap away. Outside a consultation (before any scan), the pictures shown are
+     * exactly the styles the reply names.
      */
     private suspend fun respondFreeform(text: String) {
-        val context = buildConsultationContext()
-        chatRepository.reply(chatBot.state.value.messages, text, context)
-            .onSuccess { reply -> chatBot.pushBotMessage(reply) }
-            .onFailure { error -> chatBot.pushBotMessage("I couldn't reach the AI consultant right now (${error.message}).") }
+        val catalog = recommender.catalog()
+        val context = buildConsultationContext(catalog)
+        val conversation = chatBot.buildReplyContext()
+        val consulting = _uiState.value.stage == FaceScanStage.CONSULTING
+        val quickReplies = if (consulting) listOf(CONFIRM_LABEL) else emptyList()
+        chatRepository.reply(conversation.recentMessages, text, context, conversation.summary)
+            .onSuccess { reply ->
+                val pictures = if (consulting) emptyList() else haircutsNamedIn(reply, catalog)
+                chatBot.pushBotMessage(reply, haircutOptions = pictures, quickReplies = quickReplies)
+            }
+            .onFailure { error ->
+                chatBot.pushBotMessage(
+                    "I couldn't reach the AI consultant right now (${error.message}).",
+                    quickReplies = quickReplies
+                )
+            }
     }
 
-    /** Everything the app already knows for certain about this scan, for the AI consultant to reason over. */
-    private fun buildConsultationContext(candidates: List<Haircut> = _uiState.value.suggestions): String {
+    /** Everything the app already knows for certain about this consultation, for the AI consultant to reason over. */
+    private suspend fun buildConsultationContext(catalog: List<Haircut>): String {
         val state = _uiState.value
+        val scan = state.scanResult
         return buildString {
-            state.scanResult?.let { append("Confirmed face shape: ${it.faceShape.displayName}. ") }
-            (state.desiredLength ?: state.scanResult?.hairLength)?.let { append("Hair length: ${it.displayName}. ") }
-            (state.desiredTexture ?: state.scanResult?.hairTexture)?.let { append("Hair texture: ${it.displayName}. ") }
+            scan?.let { append("Confirmed face shape: ${it.faceShape.displayName}. ") }
+            (state.desiredLength ?: scan?.hairLength)?.let { append("Hair length: ${it.displayName}. ") }
+            (state.desiredTexture ?: scan?.hairTexture)?.let { append("Hair texture: ${it.displayName}. ") }
             state.desiredTreatment?.takeIf { it != TreatmentPreference.NONE }
                 ?.let { append("Planned treatment: ${it.displayName}. ") }
-            append("\nCandidate haircuts:\n")
-            append(candidates.describeForChatContext())
+            val gender = profileGender()
+            gender.describeForChatContext()?.let { append("\n").append(it) }
+            if (scan != null) {
+                append(
+                    "\nNo hairstyle pictures are shown with your replies; the user sees their top matches as " +
+                        "pictures when they tap \"$CONFIRM_LABEL\". If they add or change preferences, you can " +
+                        "mention that tapping it will update their picks."
+                )
+                val closest = recommender.shortlist(scan, currentParameters(), gender, CLOSEST_MATCHES_HINT)
+                append(
+                    "\nClosest catalog matches to the confirmed scan so far (a starting point only — anything in " +
+                        "the full catalog below is fair game if it fits what the user asks for): " +
+                        closest.joinToString(", ") { "\"${it.name}\"" } + "."
+                )
+            }
+            if (state.suggestions.isNotEmpty()) {
+                append("\nCurrently suggested to the user: ${state.suggestions.joinToString(", ") { "\"${it.name}\"" }}.")
+            }
+            append("\nHairstyle catalog (every style the app has):\n")
+            append(catalog.describeForChatContext())
         }
     }
 
-    private fun onResultConfirmationReply(text: String) {
-        if (text.startsWith("No", ignoreCase = true)) {
-            _uiState.update { it.copy(stage = FaceScanStage.ASK_FIX, fixTarget = null) }
-            chatBot.pushBotMessage(
-                "No problem — what would you like to fix?",
-                quickReplies = fixMenuQuickReplies(includeTexture = _uiState.value.scanResult?.hairLength != HairLength.BALD)
-            )
-            return
-        }
-        if (FaceShape.entries.any { it.displayName.equals(text, ignoreCase = true) }) {
-            _uiState.update {
-                it.copy(scanResult = it.scanResult?.copy(faceShape = FaceShape.entries.first { s -> s.displayName.equals(text, ignoreCase = true) }))
+    /**
+     * Right after the scan the user chooses: see hairstyles right away, consult first, or fix the
+     * scanned features. Typing anything else starts the consultation with that message.
+     */
+    private suspend fun onResultConfirmationReply(text: String) {
+        val typedShape = FaceShape.entries.firstOrNull { it.displayName.equals(text, ignoreCase = true) }
+        when {
+            text.equals(FIX_SCAN_LABEL, ignoreCase = true) || text.startsWith("No", ignoreCase = true) -> {
+                _uiState.update { it.copy(stage = FaceScanStage.ASK_FIX, fixTarget = null) }
+                chatBot.pushBotMessage(
+                    "No problem — what would you like to fix?",
+                    quickReplies = fixMenuQuickReplies(includeTexture = _uiState.value.scanResult?.hairLength != HairLength.BALD)
+                )
+            }
+            text.equals(CONFIRM_LABEL, ignoreCase = true) -> {
+                enterConsulting()
+                showHairstyles()
+            }
+            text.equals(CONSULT_LABEL, ignoreCase = true) -> startConsulting()
+            typedShape != null -> {
+                _uiState.update { it.copy(scanResult = it.scanResult?.copy(faceShape = typedShape)) }
+                startConsulting()
+            }
+            else -> {
+                enterConsulting()
+                respondFreeform(text)
             }
         }
-        continueAfterConfirmedHair()
     }
 
     private fun onFixReply(text: String) {
@@ -180,24 +239,15 @@ class FaceScanViewModel(
         when {
             text.equals(FIX_FACE_SHAPE_LABEL, ignoreCase = true) -> {
                 _uiState.update { it.copy(fixTarget = ScanFixTarget.FACE_SHAPE) }
-                chatBot.pushBotMessage(
-                    "Pick your face shape:",
-                    quickReplies = FaceShape.entries.map { it.displayName }
-                )
+                chatBot.pushBotMessage("Pick your face shape:", quickReplies = FaceShape.entries.map { it.displayName })
             }
             text.equals(FIX_HAIR_LENGTH_LABEL, ignoreCase = true) -> {
                 _uiState.update { it.copy(fixTarget = ScanFixTarget.HAIR_LENGTH) }
-                chatBot.pushBotMessage(
-                    "Pick your hair length:",
-                    quickReplies = HairLength.entries.map { it.displayName }
-                )
+                chatBot.pushBotMessage("Pick your hair length:", quickReplies = HairLength.entries.map { it.displayName })
             }
             text.equals(FIX_HAIR_TEXTURE_LABEL, ignoreCase = true) -> {
                 _uiState.update { it.copy(fixTarget = ScanFixTarget.HAIR_TEXTURE) }
-                chatBot.pushBotMessage(
-                    "Pick your hair texture:",
-                    quickReplies = HairTexture.entries.map { it.displayName }
-                )
+                chatBot.pushBotMessage("Pick your hair texture:", quickReplies = HairTexture.entries.map { it.displayName })
             }
             else -> chatBot.pushBotMessage(
                 "Tap one of the options below, or choose Rescan to try again.",
@@ -206,6 +256,7 @@ class FaceScanViewModel(
         }
     }
 
+    /** A fixed scan leads into the consultation, per "fix the scanned features and be consulted first". */
     private fun onFixValueSelected(text: String) {
         when (_uiState.value.fixTarget) {
             ScanFixTarget.FACE_SHAPE -> {
@@ -214,7 +265,7 @@ class FaceScanViewModel(
                     return
                 }
                 _uiState.update { it.copy(scanResult = it.scanResult?.copy(faceShape = shape), fixTarget = null) }
-                startConsulting(bald = _uiState.value.scanResult?.hairLength == HairLength.BALD)
+                startConsulting()
             }
             ScanFixTarget.HAIR_LENGTH -> {
                 val length = HairLength.entries.firstOrNull { it.displayName.equals(text, ignoreCase = true) } ?: run {
@@ -228,7 +279,7 @@ class FaceScanViewModel(
                         fixTarget = null
                     )
                 }
-                continueAfterConfirmedHair()
+                startConsulting()
             }
             ScanFixTarget.HAIR_TEXTURE -> {
                 val texture = HairTexture.entries.firstOrNull { it.displayName.equals(text, ignoreCase = true) } ?: run {
@@ -242,7 +293,7 @@ class FaceScanViewModel(
                         fixTarget = null
                     )
                 }
-                startConsulting(bald = false)
+                startConsulting()
             }
             null -> onFixCategorySelected(text)
         }
@@ -255,18 +306,12 @@ class FaceScanViewModel(
         startScan()
     }
 
-    private fun continueAfterConfirmedHair() {
-        val bald = _uiState.value.scanResult?.hairLength == HairLength.BALD ||
-            _uiState.value.desiredLength == HairLength.BALD
-        startConsulting(bald)
-    }
+    private fun isBald(): Boolean =
+        _uiState.value.scanResult?.hairLength == HairLength.BALD || _uiState.value.desiredLength == HairLength.BALD
 
-    /**
-     * Opens the free-form consultation: the confirmed scan is in, so from here the user just
-     * talks with the AI consultant (length, texture, treatments, lifestyle, anything) until they
-     * tap [CONFIRM_LABEL]. No more values get locked in via quick-reply here.
-     */
-    private fun startConsulting(bald: Boolean) {
+    /** Moves into the consultation stage, seeding the wanted length/texture from the confirmed scan. */
+    private fun enterConsulting() {
+        val bald = isBald()
         _uiState.update {
             it.copy(
                 stage = FaceScanStage.CONSULTING,
@@ -275,8 +320,13 @@ class FaceScanViewModel(
                 desiredTexture = if (bald) null else it.desiredTexture ?: it.scanResult?.hairTexture
             )
         }
+    }
+
+    /** Opens the free-form consultation, which lasts until the user taps [CONFIRM_LABEL]. */
+    private fun startConsulting() {
+        enterConsulting()
         chatBot.pushBotMessage(
-            if (bald) {
+            if (isBald()) {
                 "Since you don't have hair to style right now, tell me about the wig look you want — " +
                     "style, vibe, anything at all. Tap \"$CONFIRM_LABEL\" whenever you're ready to see options."
             } else {
@@ -288,46 +338,66 @@ class FaceScanViewModel(
     }
 
     /**
-     * The commit step: collects everything discussed in the consultation (the full chat history
-     * is threaded through [GeminiChatRepository.reply] automatically) and generates real
-     * suggestions from the catalog for the AR try-on strip, with the AI consultant explaining why
-     * each fits.
+     * Show My Hairstyles: compiles this whole consultation (every message since the scan), then
+     * [HairstyleRecommender] narrows the catalog to the user's stated parameters, reasons over it
+     * with the hairstyling knowledge base, and picks the top matches — shown with the catalog's
+     * own images. Runs again from scratch on every tap, so new parameters always get fresh picks.
      */
-    fun confirmConsultation() {
-        if (_uiState.value.stage != FaceScanStage.CONSULTING) return
-        _uiState.update { it.copy(stage = FaceScanStage.SUGGESTIONS) }
-        viewModelScope.launch {
-            val result = _uiState.value.scanResult ?: return@launch
-            val bald = result.hairLength == HairLength.BALD || _uiState.value.desiredLength == HairLength.BALD
-            val suggestions = if (bald) {
-                haircutRepository.observeClusters().first().flatMap { it.haircuts }
-                    .filter { result.faceShape in it.recommendedFaceShapes }
-                    .ifEmpty { haircutRepository.observeClusters().first().flatMap { it.haircuts } }
-                    .take(6)
+    private suspend fun showHairstyles() {
+        val result = _uiState.value.scanResult ?: return
+        if (_uiState.value.stage == FaceScanStage.RECOMMENDING) return
+        _uiState.update { it.copy(stage = FaceScanStage.RECOMMENDING) }
+        chatBot.pushBotMessage("Let me think through everything we discussed and find your best matches in the catalog...")
+        try {
+            val recommendation = recommender.recommend(
+                scan = result,
+                known = currentParameters(),
+                gender = profileGender(),
+                consultation = chatBot.messagesSince(consultationStartedAt).takeLast(MAX_CONSULTATION_MESSAGES),
+                conversationSummary = chatBot.buildReplyContext().summary
+            )
+            val parameters = recommendation.parameters
+            _uiState.update {
+                it.copy(
+                    stage = FaceScanStage.SUGGESTIONS,
+                    suggestions = recommendation.haircuts,
+                    desiredLength = parameters.length,
+                    desiredTexture = parameters.texture,
+                    desiredTreatment = parameters.treatment
+                )
+            }
+            val intro = recommendation.explanation ?: if (parameters.length == HairLength.BALD) {
+                "Since you don't have hair to style, you can try a wig. " +
+                    "Here are looks that fit your ${result.faceShape.displayName} face — tap one to try it on."
             } else {
-                val length = _uiState.value.desiredLength ?: result.hairLength
-                val texture = _uiState.value.desiredTexture ?: result.hairTexture
-                haircutRepository.observeMatching(result.faceShape, length, texture).first()
-                    .ifEmpty { haircutRepository.observeClusters().first().flatMap { it.haircuts }.take(6) }
+                "Based on your ${result.faceShape.displayName} face shape, here are some cuts I'd suggest. Tap one to try it on!"
             }
-            _uiState.update { it.copy(suggestions = suggestions) }
-            val intro = chatRepository.reply(
-                chatBot.state.value.messages,
-                "The user just confirmed they're happy with the consultation. Recommend hairstyles from the " +
-                    "candidates now, weaving in everything relevant from our conversation, and explain why each fits.",
-                buildConsultationContext(suggestions)
-            ).getOrElse {
-                if (bald) {
-                    "Since you don't have hair to style, you can try a wig. " +
-                        "Here are looks that fit your ${result.faceShape.displayName} face — tap one to try it on."
-                } else {
-                    "Based on your ${result.faceShape.displayName} face shape, here are some cuts I'd suggest. Tap one to try it on!"
-                }
-            }
-            chatBot.pushBotMessage(intro, haircutOptions = suggestions)
+            chatBot.pushBotMessage(intro, haircutOptions = recommendation.haircuts)
             persistConsultation(selectedHaircut = null)
             persistPreferences()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            _uiState.update { it.copy(stage = FaceScanStage.CONSULTING) }
+            chatBot.pushBotMessage(
+                "I couldn't put your matches together (${error.message}). Tap \"$CONFIRM_LABEL\" to try again.",
+                quickReplies = listOf(CONFIRM_LABEL)
+            )
         }
+    }
+
+    private fun currentParameters(): ExtractedPreferences {
+        val state = _uiState.value
+        return ExtractedPreferences(
+            length = state.desiredLength ?: state.scanResult?.hairLength,
+            texture = state.desiredTexture ?: state.scanResult?.hairTexture,
+            treatment = state.desiredTreatment
+        )
+    }
+
+    private suspend fun profileGender(): Gender? {
+        val uid = authRepository.currentUser.value?.uid ?: return null
+        return userRepository.get(uid)?.gender
     }
 
     fun onHaircutTryOn(haircut: Haircut) {
@@ -369,7 +439,7 @@ class FaceScanViewModel(
         val uid = authRepository.currentUser.value?.uid ?: return
         val state = _uiState.value
         viewModelScope.launch {
-            val current = userRepository.observe(uid).first() ?: return@launch
+            val current = userRepository.get(uid) ?: return@launch
             userRepository.save(
                 current.copy(
                     preferredHairLength = state.desiredLength ?: current.preferredHairLength,
@@ -393,6 +463,12 @@ private const val FIX_HAIR_LENGTH_LABEL = "Hair length"
 private const val FIX_HAIR_TEXTURE_LABEL = "Hair texture"
 private const val RESCAN_LABEL = "Rescan"
 private const val CONFIRM_LABEL = "Show My Hairstyles"
+private const val CONSULT_LABEL = "Consult with me first"
+private const val FIX_SCAN_LABEL = "Fix scan results"
+/** How many scan-closest styles are pointed out to the consultant as a starting point. */
+private const val CLOSEST_MATCHES_HINT = 8
+/** Cap on how much of one consultation gets compiled for Show My Hairstyles. */
+private const val MAX_CONSULTATION_MESSAGES = 80
 
 private fun hairScanPhrase(result: ScanResult): String {
     if (result.hairLength == HairLength.BALD) {

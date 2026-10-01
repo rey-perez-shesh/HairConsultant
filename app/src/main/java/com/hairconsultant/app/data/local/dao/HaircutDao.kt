@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.hairconsultant.app.data.local.entity.HaircutEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -20,4 +21,11 @@ interface HaircutDao {
 
     @Query("DELETE FROM haircuts")
     suspend fun clear()
+
+    /** Replaces the whole table with [haircuts] so rows for styles removed from the catalog don't linger. */
+    @Transaction
+    suspend fun replaceAll(haircuts: List<HaircutEntity>) {
+        clear()
+        insertAll(haircuts)
+    }
 }

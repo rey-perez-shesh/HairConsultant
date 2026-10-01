@@ -98,7 +98,7 @@ fun HairConsultantNavHost(container: AppContainer) {
                 val viewModel: FaceScanViewModel = viewModel(factory = ViewModelFactory(container) { c ->
                     FaceScanViewModel(
                         c.faceAnalyzer,
-                        c.haircutRepository,
+                        c.hairstyleRecommender,
                         c.faceLandmarkStore,
                         c.geminiChatRepository,
                         c.chatBotController,
@@ -114,7 +114,7 @@ fun HairConsultantNavHost(container: AppContainer) {
                 val viewModel: ImageUploadViewModel = viewModel(factory = ViewModelFactory(container) { c ->
                     ImageUploadViewModel(
                         c.faceAnalyzer,
-                        c.haircutRepository,
+                        c.hairstyleRecommender,
                         c.geminiImageRepository,
                         c.geminiChatRepository,
                         c.chatBotController,

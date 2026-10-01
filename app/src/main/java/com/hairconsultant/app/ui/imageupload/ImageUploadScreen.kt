@@ -1,5 +1,6 @@
 package com.hairconsultant.app.ui.imageupload
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,7 +21,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -32,6 +32,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hairconsultant.app.ui.chatbot.ChatBotSheet
+import com.hairconsultant.app.ui.chatbot.rememberChatBotSheetState
 import com.hairconsultant.app.ui.components.ChatFab
 import com.hairconsultant.app.ui.facescan.TryOnStrip
 import kotlinx.coroutines.launch
@@ -41,7 +42,7 @@ import kotlinx.coroutines.launch
 fun ImageUploadScreen(viewModel: ImageUploadViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val chatState by viewModel.chatState.collectAsState()
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = rememberChatBotSheetState()
     val scope = rememberCoroutineScope()
 
     val pickImageLauncher = rememberLauncherForActivityResult(
@@ -68,7 +69,13 @@ fun ImageUploadScreen(viewModel: ImageUploadViewModel) {
                 }) { Text("Choose Photo") }
             }
         } else {
-            val displayUri = uiState.generatedImageUri ?: uiState.sourceImageUri
+            // On a failed generation, ImageUploadViewModel's chat message tells the user it's
+            // "showing the style's reference photo instead" — this fallback is what makes that
+            // true, rather than silently redisplaying their original, unstyled photo.
+            val fallbackUri = uiState.selectedHaircut?.takeIf { uiState.generationError != null }
+                ?.let { runCatching { Uri.parse(it.imageUrl) }.getOrNull() }
+                ?: uiState.sourceImageUri
+            val displayUri = uiState.generatedImageUri ?: fallbackUri
             AsyncImage(
                 model = displayUri,
                 contentDescription = "Uploaded photo",
