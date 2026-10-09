@@ -108,8 +108,7 @@ class ImageUploadViewModel(
                 chatBot.pushBotMessage(
                     "I see a ${result.faceShape.displayName} face shape" +
                         hairScanPhrase(result) +
-                        "." + angledPhotoNote(result) +
-                        " Want to see hairstyles that fit you right away, or talk it through with me first? " +
+                        ". Want to see hairstyles that fit you right away, or talk it through with me first? " +
                         "If I got anything wrong, tap \"$FIX_SCAN_LABEL\".",
                     quickReplies = listOf(CONFIRM_LABEL, CONSULT_LABEL, FIX_SCAN_LABEL)
                 )
@@ -578,13 +577,6 @@ private const val FIX_SCAN_LABEL = "Fix scan results"
 private const val CLOSEST_MATCHES_HINT = 8
 /** Cap on how much of one consultation gets compiled for Show My Hairstyles. */
 private const val MAX_CONSULTATION_MESSAGES = 80
-
-/** Warns that an angled photo's face shape is a weaker read, so the user knows to check or fix it. */
-private fun angledPhotoNote(result: ScanResult): String =
-    result.faceAngleWarning?.let {
-        " Your head looks turned or tilted in this photo, so the face shape is less certain — " +
-            "fix it if it looks wrong, or upload a straight-on photo."
-    }.orEmpty()
 
 private fun hairScanPhrase(result: ScanResult): String {
     if (result.hairLength == HairLength.BALD) {

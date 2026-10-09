@@ -12,7 +12,5 @@ data class ScanResult(
     val hairColorConfidence: Float = 0f,
     val verifierFaceShape: FaceShape? = null,
     val sourcesAgreed: Boolean = true,
-    /** Set for an uploaded photo whose head is turned or tilted too far for a reliable face-shape read. */
-    val faceAngleWarning: String? = null,
     val analysisNote: String? = null
 )

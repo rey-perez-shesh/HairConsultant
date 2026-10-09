@@ -89,6 +89,15 @@ class FaceAlignmentTest {
         assertEquals("Keep your head upright", FaceAlignment.liveGuideHint(HeadAngles(0f, 0f, 40f)))
     }
 
+    @Test
+    fun angledPhotosAreRefusedAndStraightOnesAccepted() {
+        assertNull(FaceAlignment.photoRejection(HeadAngles(10f, 5f, 0f)))
+        assertNull(FaceAlignment.photoRejection(null))
+        val refusal = FaceAlignment.photoRejection(HeadAngles(30f, 0f, 0f))!!
+        assertTrue(refusal.startsWith("Your head is turned to the side in that photo"))
+        assertTrue(refusal.contains("straight on"))
+    }
+
     // --- Multi-frame aggregation ---
 
     @Test

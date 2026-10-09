@@ -133,6 +133,18 @@ object FaceAlignment {
         }
     }
 
+    /** Why an uploaded photo can't be measured, naming the worst angle; null when the head faces the camera. */
+    fun photoRejection(angles: HeadAngles?): String? {
+        if (angles == null || isFacingCamera(angles)) return null
+        val problem = when (worstAxis(angles)) {
+            Axis.YAW -> "Your head is turned to the side"
+            Axis.PITCH -> "Your head is tilted up or down"
+            Axis.ROLL, null -> "Your head is tilted sideways"
+        }
+        return "$problem in that photo, so I can't measure your face shape reliably. " +
+            "Please upload one where you're facing the camera straight on."
+    }
+
     private enum class Axis { YAW, PITCH, ROLL }
 
     /** The axis furthest past its limit relative to that limit, or null when the pose is unknown. */

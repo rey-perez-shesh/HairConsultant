@@ -107,14 +107,10 @@ class LandmarkFaceAnalyzer(
         try {
             val detection = stillLandmarker.detect(bitmap)
                 ?: throw NoFaceDetectedException("I couldn't find a face in that photo. Try a clearer front-facing shot.")
-            return classify(
-                detection.points,
-                bitmap.width,
-                bitmap.height,
-                bitmap,
-                liveHair = null,
-                photoAngleHint = FaceAlignment.adjustmentHint(detection.angles)
-            )
+            // Same rule as the live scan: a turned or tilted head gives the wrong face shape, so
+            // an angled photo is refused rather than measured.
+            FaceAlignment.photoRejection(detection.angles)?.let { throw NoFaceDetectedException(it) }
+            return classify(detection.points, bitmap.width, bitmap.height, bitmap, liveHair = null)
         } finally {
             bitmap.recycle()
         }
@@ -127,9 +123,7 @@ class LandmarkFaceAnalyzer(
         bitmapForVerifier: android.graphics.Bitmap?,
         liveHair: HairMask?,
         /** The live scan's multi-frame measurement; null for a photo, which is measured from [points]. */
-        measured: AggregatedFaceShape? = null,
-        /** Set when an uploaded photo's head is turned or tilted too far to measure reliably. */
-        photoAngleHint: String? = null
+        measured: AggregatedFaceShape? = null
     ): ScanResult {
         val heuristicShape = measured?.classification
             ?: FaceShapeClassifier.classify(points, width, height)
@@ -144,7 +138,6 @@ class LandmarkFaceAnalyzer(
         val resolvedShape = if (useCnnShape) cnnShape!!.shape else heuristicShape.shape
         val resolvedShapeConfidence = (if (useCnnShape) cnnShape!!.confidence else heuristicShape.confidence)
             .let { confidence -> measured?.let { FaceAlignment.adjustForAgreement(confidence, it.agreement) } ?: confidence }
-            .let { confidence -> if (photoAngleHint != null) minOf(confidence, ANGLED_PHOTO_CONFIDENCE_CAP) else confidence }
 
         val verifier = bitmapForVerifier?.let { mlKitVerifier.classify(it) }
         val agreed = verifier == null || verifier.shape == resolvedShape
@@ -177,7 +170,7 @@ class LandmarkFaceAnalyzer(
             hairLength = hair?.length ?: HairLength.BALD,
             hairTexture = appearance?.texture ?: HairTexture.STRAIGHT,
             hairColor = appearance?.color ?: HairColor.OTHER,
-            faceShapeConfidence = if (agreed && verifier != null && photoAngleHint == null) {
+            faceShapeConfidence = if (agreed && verifier != null) {
                 ((resolvedShapeConfidence + verifier.confidence) / 2f).coerceAtMost(0.95f)
             } else {
                 resolvedShapeConfidence.coerceAtMost(if (useCnnShape) 0.9f else 0.7f)
@@ -187,7 +180,6 @@ class LandmarkFaceAnalyzer(
             hairColorConfidence = if (isBald) 0f else (appearance?.colorConfidence ?: 0.35f),
             verifierFaceShape = verifier?.shape,
             sourcesAgreed = agreed,
-            faceAngleWarning = photoAngleHint,
             analysisNote = listOfNotNull(shapeNote).joinToString(" ").ifBlank { null }?.plus(hairNote)
                 ?: hairNote.trim()
         )
@@ -200,9 +192,6 @@ class LandmarkFaceAnalyzer(
 
         /** How long a live scan collects frames before deciding from what it has. */
         private const val SCAN_WINDOW_MS = 3_000L
-
-        /** Face-shape confidence ceiling for a photo whose head is turned or tilted too far. */
-        private const val ANGLED_PHOTO_CONFIDENCE_CAP = 0.5f
     }
 
     private fun buildHairNote(
