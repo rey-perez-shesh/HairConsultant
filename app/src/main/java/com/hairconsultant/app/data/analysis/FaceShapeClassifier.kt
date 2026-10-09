@@ -47,7 +47,16 @@ object FaceShapeClassifier {
         points: List<LandmarkPoint>,
         imageWidth: Int,
         imageHeight: Int
-    ): FaceShapeClassification? {
+    ): FaceShapeClassification? = measure(points, imageWidth, imageHeight)?.let(::classify)
+
+    /** Classifies already-measured ratios, e.g. the median of several frames' [measure] results. */
+    fun classify(metrics: FaceShapeMetrics): FaceShapeClassification {
+        val shape = decide(metrics)
+        return FaceShapeClassification(shape, confidence(shape, metrics), metrics)
+    }
+
+    /** The four width/length ratios the shape is decided from, or null if the face is too small to measure. */
+    fun measure(points: List<LandmarkPoint>, imageWidth: Int, imageHeight: Int): FaceShapeMetrics? {
         if (imageWidth <= 0 || imageHeight <= 0) return null
         if (required.any { it >= points.size }) return null
 
@@ -59,14 +68,12 @@ object FaceShapeClassifier {
         val temple = dist(points[LEFT_TEMPLE], points[RIGHT_TEMPLE], w, h)
         if (length < 8f || cheek < 8f || jaw < 8f || temple < 8f) return null
 
-        val metrics = FaceShapeMetrics(
+        return FaceShapeMetrics(
             lengthToWidth = length / cheek,
             jawToCheek = jaw / cheek,
             foreheadToJaw = temple / jaw,
             foreheadToCheek = temple / cheek
         )
-        val shape = decide(metrics)
-        return FaceShapeClassification(shape, confidence(shape, metrics), metrics)
     }
 
     /**
