@@ -1,5 +1,6 @@
 package com.hairconsultant.app.data.repository
 
+import android.util.Log
 import com.hairconsultant.app.data.local.dao.ChatMessageDao
 import com.hairconsultant.app.data.local.dao.ChatSummaryDao
 import com.hairconsultant.app.data.local.dao.HaircutDao
@@ -70,17 +71,21 @@ class ChatHistoryRepositoryImpl(
     override suspend fun append(userId: String, message: ChatMessage) {
         chatMessageDao.insert(message.toEntity(userId))
         runCatching { remote.append(userId, message) }
+            .onFailure { Log.w(TAG, "Couldn't save chat message ${message.id} to Firestore", it) }
     }
 
     override suspend fun clearHistory(userId: String) {
         chatMessageDao.clearHistory(userId)
         chatSummaryDao.clear(userId)
         runCatching { remote.clearHistory(userId) }
+            .onFailure { Log.w(TAG, "Couldn't clear chat history in Firestore", it) }
     }
 
     override suspend fun restoreFromRemoteIfEmpty(userId: String) {
         if (chatMessageDao.countForUser(userId) > 0) return
-        val remoteHistory = runCatching { remote.fetchHistory(userId) }.getOrNull() ?: return
+        val remoteHistory = runCatching { remote.fetchHistory(userId) }
+            .onFailure { Log.w(TAG, "Couldn't restore chat history from Firestore", it) }
+            .getOrNull() ?: return
         remoteHistory.forEach { restored ->
             chatMessageDao.insert(restored.message.toEntity(userId, restored.haircutOptionIds))
         }
@@ -121,6 +126,8 @@ class ChatHistoryRepositoryImpl(
     }
 
     private companion object {
+        const val TAG = "ChatHistoryRepository"
+
         /** How many of the most recent messages get replayed verbatim to Gemini on every reply. */
         const val RECENT_WINDOW_SIZE = 20
     }

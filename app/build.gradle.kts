@@ -58,6 +58,11 @@ android {
         }
     }
 
+    // Lets plain JVM unit tests run code that calls android.util.Log (it returns defaults instead of throwing).
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

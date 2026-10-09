@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 interface UserRepository {
     /**
@@ -30,8 +31,21 @@ interface UserRepository {
      * when the profile exists nowhere or can't be fetched (offline, Firestore rules).
      */
     suspend fun get(userId: String): User?
+
+    /**
+     * Brings this device and Firestore back in line: downloads the Firestore profile when there
+     * is one, or, when Firestore has none but this device does (a registration whose Firestore
+     * write failed), uploads the local copy so the account is repaired. Throws if Firestore can't
+     * be reached, so callers decide whether that matters.
+     */
     suspend fun refreshFromRemote(userId: String)
-    suspend fun save(user: User)
+
+    /**
+     * Saves locally, then to Firestore. The local save always happens; the result reports
+     * whether the Firestore write succeeded, so callers can tell the user instead of the
+     * profile silently existing on this device only.
+     */
+    suspend fun save(user: User): Result<Unit>
 }
 
 class UserRepositoryImpl(
@@ -51,21 +65,33 @@ class UserRepositoryImpl(
     }
 
     override suspend fun refreshFromRemote(userId: String) {
-        remote.fetch(userId)?.let { userDao.upsert(it.toEntity()) }
+        val remoteUser = remote.fetch(userId)
+        if (remoteUser != null) {
+            userDao.upsert(remoteUser.toEntity())
+            return
+        }
+        val localUser = userDao.get(userId) ?: return
+        Log.w(TAG, "Profile $userId is missing from Firestore but exists on this device; uploading it")
+        remote.save(localUser.toDomain())
+        Log.i(TAG, "Repaired missing Firestore profile $userId")
     }
 
     private suspend fun tryRefreshFromRemote(userId: String) {
         runCatching { refreshFromRemote(userId) }
-            .onFailure { Log.w(TAG, "Couldn't download the profile from Firestore; using the local copy", it) }
+            .onFailure { Log.w(TAG, "Couldn't sync the profile with Firestore; using the local copy", it) }
     }
 
-    override suspend fun save(user: User) {
+    override suspend fun save(user: User): Result<Unit> {
         userDao.upsert(user.toEntity())
-        runCatching { remote.save(user) }
+        // Offline, a Firestore write only completes once the device reconnects; bound the wait
+        // so registration reports the failure instead of spinning forever.
+        return runCatching { withTimeout(REMOTE_SAVE_TIMEOUT_MILLIS) { remote.save(user) } }
+            .onFailure { Log.e(TAG, "Couldn't save profile ${user.id} to Firestore; it's only on this device", it) }
     }
 
     private companion object {
         const val TAG = "UserRepository"
+        const val REMOTE_SAVE_TIMEOUT_MILLIS = 15_000L
     }
 }
 

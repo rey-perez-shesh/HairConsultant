@@ -1,5 +1,6 @@
 package com.hairconsultant.app.data.repository
 
+import android.util.Log
 import com.hairconsultant.app.data.local.dao.ConsultationDao
 import com.hairconsultant.app.data.local.dao.HaircutDao
 import com.hairconsultant.app.data.local.entity.ConsultationEntity
@@ -41,6 +42,7 @@ class ConsultationRepositoryImpl(
     override suspend fun save(consultation: Consultation) {
         consultationDao.upsert(consultation.toEntity())
         runCatching { remote.save(consultation) }
+            .onFailure { Log.w(TAG, "Couldn't save consultation ${consultation.id} to Firestore", it) }
     }
 
     override suspend fun setFavorite(consultationId: String, isFavorite: Boolean) {
@@ -53,6 +55,10 @@ class ConsultationRepositoryImpl(
 
     override suspend fun clearFavorites(userId: String) {
         consultationDao.clearFavorites(userId)
+    }
+
+    private companion object {
+        const val TAG = "ConsultationRepository"
     }
 }
 

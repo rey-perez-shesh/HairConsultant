@@ -20,7 +20,12 @@ data class RegisterUiState(
     val gender: Gender? = null,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
-    val isRegistered: Boolean = false
+    val isRegistered: Boolean = false,
+    /**
+     * Set when the account was created but its profile couldn't be saved to Firestore; shown
+     * before leaving the screen. The profile is kept on this device and uploaded at next login.
+     */
+    val profileSyncWarning: String? = null
 )
 
 class RegisterViewModel(
@@ -47,6 +52,7 @@ class RegisterViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             val result = authRepository.register(state.email.trim(), state.password)
+            var profileSyncWarning: String? = null
             result.onSuccess { authUser ->
                 userRepository.save(
                     User(
@@ -57,7 +63,11 @@ class RegisterViewModel(
                         gender = state.gender ?: Gender.PREFER_NOT_TO_SAY,
                         createdAtEpochMillis = System.currentTimeMillis()
                     )
-                )
+                ).onFailure { error ->
+                    profileSyncWarning = "Your account was created, but your profile couldn't be saved to the " +
+                        "cloud (${error.message}). It's kept on this phone and will be uploaded automatically " +
+                        "the next time you log in here."
+                }
                 // Firebase signs the new user in automatically; sign back out so registration
                 // lands on the login page instead of skipping straight into the app.
                 authRepository.logout()
@@ -66,6 +76,7 @@ class RegisterViewModel(
                 it.copy(
                     isLoading = false,
                     isRegistered = result.isSuccess,
+                    profileSyncWarning = profileSyncWarning,
                     errorMessage = result.exceptionOrNull()?.message
                 )
             }
