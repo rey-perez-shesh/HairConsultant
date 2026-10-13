@@ -1,3 +1,5 @@
+# Kotlin build cache and error logs
+.kotlin/
 *.iml
 .gradle
 /local.properties
