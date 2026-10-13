@@ -1,5 +1,6 @@
 package com.hairconsultant.app.data.repository
 
+import android.util.Log
 import com.hairconsultant.app.data.local.dao.FeedbackDao
 import com.hairconsultant.app.data.local.entity.FeedbackEntity
 import com.hairconsultant.app.data.remote.firebase.FeedbackRemoteRepository
@@ -50,8 +51,12 @@ class FeedbackRepositoryImpl(
                         createdAtEpochMillis = pending.createdAtEpochMillis
                     )
                 )
-            }.isSuccess
+            }.onFailure { Log.w(TAG, "Couldn't send feedback ${pending.id} to Firestore; will retry", it) }.isSuccess
             if (synced) feedbackDao.markSynced(pending.id)
         }
+    }
+
+    private companion object {
+        const val TAG = "FeedbackRepository"
     }
 }

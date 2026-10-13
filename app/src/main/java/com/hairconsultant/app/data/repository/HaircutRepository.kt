@@ -1,5 +1,6 @@
 package com.hairconsultant.app.data.repository
 
+import android.util.Log
 import com.hairconsultant.app.data.SampleData
 import com.hairconsultant.app.data.local.dao.HaircutDao
 import com.hairconsultant.app.data.local.entity.HaircutEntity
@@ -56,6 +57,11 @@ class HaircutRepositoryImpl(
         // so awaiting the reconcile first left a fresh install's Home on a spinner indefinitely.
         haircutDao.replaceAll(SampleData.allHaircuts.map { it.toEntity() })
         runCatching { remote.reconcile(SampleData.allHaircuts) }
+            .onFailure { Log.w(TAG, "Couldn't sync the catalog to Firestore", it) }
+    }
+
+    private companion object {
+        const val TAG = "HaircutRepository"
     }
 }
 

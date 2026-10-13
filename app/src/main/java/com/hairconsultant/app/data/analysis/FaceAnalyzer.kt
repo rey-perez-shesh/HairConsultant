@@ -2,6 +2,7 @@ package com.hairconsultant.app.data.analysis
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import com.hairconsultant.app.domain.model.FaceShape
 import com.hairconsultant.app.domain.model.HairColor
 import com.hairconsultant.app.domain.model.HairLength
@@ -57,23 +58,44 @@ class LandmarkFaceAnalyzer(
     private val hairTypeCnn: HairTypeTfliteClassifier
 ) : FaceAnalyzer {
 
+    /**
+     * Measures the face over the frames that arrive in the next few seconds instead of a single
+     * one: only frames where the head faces the camera count, and their ratios are combined by
+     * median (see [FaceAlignment]). Stops early once [FaceAlignment.TARGET_FRAMES] usable frames
+     * are in, so a steady user waits well under a second at typical frame rates.
+     */
     override suspend fun analyzeCameraFrame(): ScanResult {
-        val frame = run {
-            repeat(20) {
-                store.snapshot()?.let { return@run it }
-                delay(100)
-            }
-            null
-        } ?: throw NoFaceDetectedException(
-            "Hold still and center your face in the outline, then tap Scan."
+        val scanStartedAt = SystemClock.elapsedRealtime()
+        while (SystemClock.elapsedRealtime() - scanStartedAt < SCAN_WINDOW_MS) {
+            val usable = store.samplesSince(scanStartedAt).count { FaceAlignment.isFacingCamera(it.angles) }
+            if (usable >= FaceAlignment.TARGET_FRAMES) break
+            delay(100)
+        }
+        val samples = store.samplesSince(scanStartedAt)
+        val measured = FaceAlignment.aggregate(samples)
+            ?: throw NoFaceDetectedException(
+                when {
+                    samples.isEmpty() -> "Hold still and center your face in the outline, then tap Scan."
+                    else -> FaceAlignment.adjustmentHint(store.latestAngles())?.let { "$it Then tap Scan again." }
+                        ?: "Hold still and face the camera for a moment, then tap Scan again."
+                }
+            )
+        android.util.Log.d(
+            TAG,
+            "Face scan: ${measured.framesUsed}/${samples.size} frames facing the camera, " +
+                "${measured.classification.shape} with ${(measured.agreement * 100).toInt()}% frame agreement, " +
+                "median ${measured.classification.metrics}, last pose ${store.latestAngles()}"
         )
+        val frame = store.snapshot()
+            ?: throw NoFaceDetectedException("Hold still and center your face in the outline, then tap Scan.")
         return try {
             classify(
                 points = frame.points,
                 width = frame.imageWidth,
                 height = frame.imageHeight,
                 bitmapForVerifier = frame.bitmap,
-                liveHair = frame.hairMask
+                liveHair = frame.hairMask,
+                measured = measured
             )
         } finally {
             frame.bitmap?.recycle()
@@ -83,9 +105,12 @@ class LandmarkFaceAnalyzer(
     override suspend fun analyzeImage(imageUri: Uri): ScanResult {
         val bitmap = ScanBitmapLoader.fromUri(context, imageUri)
         try {
-            val points = stillLandmarker.detect(bitmap)
+            val detection = stillLandmarker.detect(bitmap)
                 ?: throw NoFaceDetectedException("I couldn't find a face in that photo. Try a clearer front-facing shot.")
-            return classify(points, bitmap.width, bitmap.height, bitmap, liveHair = null)
+            // Same rule as the live scan: a turned or tilted head gives the wrong face shape, so
+            // an angled photo is refused rather than measured.
+            FaceAlignment.photoRejection(detection.angles)?.let { throw NoFaceDetectedException(it) }
+            return classify(detection.points, bitmap.width, bitmap.height, bitmap, liveHair = null)
         } finally {
             bitmap.recycle()
         }
@@ -96,9 +121,12 @@ class LandmarkFaceAnalyzer(
         width: Int,
         height: Int,
         bitmapForVerifier: android.graphics.Bitmap?,
-        liveHair: HairMask?
+        liveHair: HairMask?,
+        /** The live scan's multi-frame measurement; null for a photo, which is measured from [points]. */
+        measured: AggregatedFaceShape? = null
     ): ScanResult {
-        val heuristicShape = FaceShapeClassifier.classify(points, width, height)
+        val heuristicShape = measured?.classification
+            ?: FaceShapeClassifier.classify(points, width, height)
             ?: throw NoFaceDetectedException("I found a face but couldn't measure its shape. Move a bit closer and try again.")
         // faceShapeCnn takes the same landmark ratios the heuristic just computed, not pixels, so
         // it can run whenever a face was measured at all (no bitmap needed). It only knows
@@ -108,7 +136,8 @@ class LandmarkFaceAnalyzer(
         val cnnShape = faceShapeCnn.classify(heuristicShape.metrics)
         val useCnnShape = cnnShape != null && cnnShape.confidence >= CNN_CONFIDENCE_FLOOR
         val resolvedShape = if (useCnnShape) cnnShape!!.shape else heuristicShape.shape
-        val resolvedShapeConfidence = if (useCnnShape) cnnShape!!.confidence else heuristicShape.confidence
+        val resolvedShapeConfidence = (if (useCnnShape) cnnShape!!.confidence else heuristicShape.confidence)
+            .let { confidence -> measured?.let { FaceAlignment.adjustForAgreement(confidence, it.agreement) } ?: confidence }
 
         val verifier = bitmapForVerifier?.let { mlKitVerifier.classify(it) }
         val agreed = verifier == null || verifier.shape == resolvedShape
@@ -158,7 +187,11 @@ class LandmarkFaceAnalyzer(
 
     companion object {
         /** Softmax confidence a CNN result needs to be trusted over the heuristic fallback. */
+        private const val TAG = "LandmarkFaceAnalyzer"
         private const val CNN_CONFIDENCE_FLOOR = 0.5f
+
+        /** How long a live scan collects frames before deciding from what it has. */
+        private const val SCAN_WINDOW_MS = 3_000L
     }
 
     private fun buildHairNote(

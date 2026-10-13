@@ -54,11 +54,18 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         pathEffect = DashPathEffect(floatArrayOf(22f, 16f), 0f)
     }
+    /** Amber oval while a face is found but turned or tilted, so the warning reads at a glance. */
+    private val misalignedGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = WARNING_COLOR
+        strokeWidth = 6f
+        style = Paint.Style.STROKE
+        pathEffect = DashPathEffect(floatArrayOf(22f, 16f), 0f)
+    }
     private val hairPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
-        textSize = 36f
+        textSize = TEXT_SIZE
         setShadowLayer(6f, 0f, 2f, Color.BLACK)
     }
 
@@ -140,7 +147,12 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
         }
 
         if (!hairRemovalEnabled) {
-            canvas.drawOval(ovalBounds, if (frame.faceDetected) foundGuidePaint else guidePaint)
+            val ovalPaint = when {
+                frame.faceDetected && frame.alignmentHint != null -> misalignedGuidePaint
+                frame.faceDetected -> foundGuidePaint
+                else -> guidePaint
+            }
+            canvas.drawOval(ovalBounds, ovalPaint)
         }
 
         if (!hairRemovalEnabled && frame.faceDetected && frame.points.isNotEmpty()) {
@@ -171,7 +183,21 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
                 "Align face for wig try-on"
             else -> frame.statusMessage
         }
+        val warning = !hairRemovalEnabled && frame.alignmentHint != null
+        textPaint.color = if (warning) WARNING_COLOR else Color.WHITE
+        textPaint.textSize = if (warning) WARNING_TEXT_SIZE else TEXT_SIZE
+        // Shrink rather than clip when a status line is wider than the screen.
+        val maxWidth = width - 2 * TEXT_SIDE_PADDING
+        val measured = textPaint.measureText(status)
+        if (measured > maxWidth && maxWidth > 0) textPaint.textSize *= maxWidth / measured
         canvas.drawText(status, width / 2f, ovalBounds.bottom + 56f, textPaint)
+    }
+
+    private companion object {
+        val WARNING_COLOR = Color.parseColor("#FFB74D")
+        const val TEXT_SIZE = 36f
+        const val WARNING_TEXT_SIZE = 44f
+        const val TEXT_SIDE_PADDING = 32f
     }
 }
 

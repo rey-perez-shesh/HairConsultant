@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -59,7 +60,18 @@ fun RegisterScreen(
     var showDatePicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.isRegistered) {
-        if (uiState.isRegistered) onRegisterSuccess()
+        if (uiState.isRegistered && uiState.profileSyncWarning == null) onRegisterSuccess()
+    }
+
+    if (uiState.isRegistered) {
+        uiState.profileSyncWarning?.let { warning ->
+            AlertDialog(
+                onDismissRequest = onRegisterSuccess,
+                title = { Text("Profile not saved to the cloud") },
+                text = { Text(warning) },
+                confirmButton = { TextButton(onClick = onRegisterSuccess) { Text("OK") } }
+            )
+        }
     }
 
     Scaffold(

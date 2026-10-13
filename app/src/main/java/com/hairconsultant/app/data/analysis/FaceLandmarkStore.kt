@@ -14,7 +14,9 @@ data class FaceOverlayFrame(
     val faceDetected: Boolean,
     val statusMessage: String,
     val hairMask: HairMask? = null,
-    val estimatedHairLength: HairLength? = null
+    val estimatedHairLength: HairLength? = null,
+    /** Set while a face is found but not facing the camera; the guide shows it as a warning. */
+    val alignmentHint: String? = null
 ) {
     companion object {
         fun idle(message: String = "Align your face with the outline") = FaceOverlayFrame(
@@ -52,10 +54,26 @@ class FaceLandmarkStore {
     private var latestAtElapsed: Long = 0L
     private var latestHair: HairMask? = null
     private var latestHairAtElapsed: Long = 0L
+    private var latestAngles: HeadAngles? = null
+    private var smoothedAngles: HeadAngles? = null
+    private var warningShown = false
 
-    fun publishFrame(points: List<LandmarkPoint>, bitmap: Bitmap?, width: Int, height: Int) {
+    /** Recent frames' face measurements, oldest first, so a scan can combine several (see [FaceAlignment]). */
+    private val recentSamples = ArrayDeque<FaceFrameSample>()
+
+    fun publishFrame(
+        points: List<LandmarkPoint>,
+        bitmap: Bitmap?,
+        width: Int,
+        height: Int,
+        angles: HeadAngles? = null
+    ) {
+        val metrics = FaceShapeClassifier.measure(points, width, height)
         synchronized(lock) {
             latestPoints = points
+            latestAngles = angles
+            smoothedAngles = FaceAlignment.smooth(smoothedAngles, angles)
+            warningShown = FaceAlignment.shouldWarn(smoothedAngles, warningShown)
             if (bitmap != null && bitmap !== latestBitmap) {
                 latestBitmap?.recycle()
                 latestBitmap = bitmap
@@ -65,9 +83,21 @@ class FaceLandmarkStore {
             latestWidth = width
             latestHeight = height
             latestAtElapsed = SystemClock.elapsedRealtime()
+            if (metrics != null) {
+                recentSamples.addLast(FaceFrameSample(metrics, angles, latestAtElapsed))
+                while (recentSamples.size > MAX_SAMPLES) recentSamples.removeFirst()
+            }
         }
         emitOverlay()
     }
+
+    /** Frames measured at or after [elapsedMillis] ([SystemClock.elapsedRealtime] time), oldest first. */
+    fun samplesSince(elapsedMillis: Long): List<FaceFrameSample> = synchronized(lock) {
+        recentSamples.filter { it.atElapsedMillis >= elapsedMillis }
+    }
+
+    /** The latest frame's head angles, for telling the user what to fix when a scan can't use their pose. */
+    fun latestAngles(): HeadAngles? = synchronized(lock) { latestAngles }
 
     /** Downscaled camera frame for live hair blur (caller must not recycle). */
     fun peekPreviewBitmap(): Bitmap? = synchronized(lock) {
@@ -90,6 +120,9 @@ class FaceLandmarkStore {
     fun publishEmpty(message: String = "Align your face with the outline") {
         synchronized(lock) {
             latestPoints = null
+            latestAngles = null
+            smoothedAngles = null
+            warningShown = false
             latestAtElapsed = 0L
             latestHair = null
             latestHairAtElapsed = 0L
@@ -117,8 +150,12 @@ class FaceLandmarkStore {
         val width: Int
         val height: Int
         val hair: HairMask?
+        val angles: HeadAngles?
+        val warn: Boolean
         synchronized(lock) {
             points = latestPoints ?: emptyList()
+            angles = smoothedAngles
+            warn = warningShown
             width = latestWidth.coerceAtLeast(1)
             height = latestHeight.coerceAtLeast(1)
             hair = latestHair
@@ -129,7 +166,9 @@ class FaceLandmarkStore {
         } else {
             null
         }
+        val alignmentHint = if (faceDetected && warn) FaceAlignment.liveGuideHint(angles) else null
         val status = when {
+            alignmentHint != null -> alignmentHint
             faceDetected && hairLength == HairLength.BALD ->
                 "Face found — bald / no hair detected — tap Scan"
             faceDetected && hairLength != null ->
@@ -148,8 +187,14 @@ class FaceLandmarkStore {
             faceDetected = faceDetected,
             statusMessage = status,
             hairMask = hair,
-            estimatedHairLength = hairLength
+            estimatedHairLength = hairLength,
+            alignmentHint = alignmentHint
         )
+    }
+
+    private companion object {
+        /** About 2–3 seconds of frames at the live landmarker's rate. */
+        const val MAX_SAMPLES = 45
     }
 
     private fun downscaleForBlur(src: Bitmap): Bitmap? {

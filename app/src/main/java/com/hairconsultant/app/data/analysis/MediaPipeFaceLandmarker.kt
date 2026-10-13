@@ -36,6 +36,8 @@ class LiveFaceLandmarker(
             .setMinFaceDetectionConfidence(0.5f)
             .setMinFacePresenceConfidence(0.5f)
             .setMinTrackingConfidence(0.5f)
+            // The head pose behind the face-shape scan's "face the camera" check (see FaceAlignment).
+            .setOutputFacialTransformationMatrixes(true)
             .setResultListener(::onResult)
             .setErrorListener { error ->
                 busy.set(false)
@@ -85,7 +87,7 @@ class LiveFaceLandmarker(
             return
         }
         val points = landmarks.map { LandmarkPoint(it.x(), it.y()) }
-        store.publishFrame(points, lastBitmap, input.width, input.height)
+        store.publishFrame(points, lastBitmap, input.width, input.height, result.headAngles())
     }
 
     override fun close() {
@@ -114,23 +116,31 @@ class StillImageFaceLandmarker(context: Context) : AutoCloseable {
             .setMinFaceDetectionConfidence(0.5f)
             .setMinFacePresenceConfidence(0.5f)
             .setMinTrackingConfidence(0.5f)
+            // The head pose behind the face-shape scan's "face the camera" check (see FaceAlignment).
+            .setOutputFacialTransformationMatrixes(true)
             .build()
         FaceLandmarker.createFromOptions(context, options)
     }.onFailure { error ->
         Log.e("StillFaceLandmarker", "Failed to create still Face Landmarker", error)
     }.getOrNull()
 
-    fun detect(bitmap: Bitmap): List<LandmarkPoint>? {
+    fun detect(bitmap: Bitmap): StillFaceDetection? {
         val result = faceLandmarker?.detect(BitmapImageBuilder(bitmap).build()) ?: return null
         val landmarks = result.faceLandmarks().firstOrNull() ?: return null
         if (landmarks.isEmpty()) return null
-        return landmarks.map { LandmarkPoint(it.x(), it.y()) }
+        return StillFaceDetection(landmarks.map { LandmarkPoint(it.x(), it.y()) }, result.headAngles())
     }
 
     override fun close() {
         faceLandmarker?.close()
     }
 }
+
+data class StillFaceDetection(val points: List<LandmarkPoint>, val angles: HeadAngles?)
+
+/** The first face's head angles, or null if MediaPipe didn't return a transformation matrix. */
+private fun FaceLandmarkerResult.headAngles(): HeadAngles? =
+    facialTransformationMatrixes().orElse(null)?.firstOrNull()?.let(HeadAngles::fromTransformationMatrix)
 
 internal fun rotateAndMirror(source: Bitmap, rotationDegrees: Int, mirror: Boolean): Bitmap {
     if (rotationDegrees == 0 && !mirror) return source

@@ -30,6 +30,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
@@ -147,10 +149,32 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
         }
 
         if (cameraPermissionState.status.isGranted && uiState.stage == FaceScanStage.IDLE) {
+            // Scanning is only allowed once the guide shows a face facing the camera; the guide's
+            // own text says what to fix, so a disabled tap just does nothing.
+            val guide by viewModel.landmarkStore.overlay.collectAsState()
+            val canScan = guide.faceDetected && guide.alignmentHint == null
             FloatingActionButton(
-                onClick = viewModel::startScan,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
-            ) { Icon(Icons.Filled.CameraAlt, contentDescription = "Scan face") }
+                onClick = { if (canScan) viewModel.startScan() },
+                containerColor = if (canScan) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                },
+                contentColor = if (canScan) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+                    .semantics { if (!canScan) disabled() }
+            ) {
+                Icon(
+                    Icons.Filled.CameraAlt,
+                    contentDescription = if (canScan) "Scan face" else "Scan face — face the camera first"
+                )
+            }
         }
 
         ChatFab(

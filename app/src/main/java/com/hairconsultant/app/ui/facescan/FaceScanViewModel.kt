@@ -80,15 +80,34 @@ class FaceScanViewModel(
     /** When the current scan started; everything from here on is this consultation's conversation. */
     private var consultationStartedAt = 0L
 
+    /**
+     * Why a scan can't start right now, or null when it can: the camera guide must have found a
+     * face that's facing the camera (see [com.hairconsultant.app.data.analysis.FaceAlignment]),
+     * since measuring a turned or tilted head gives the wrong face shape.
+     */
+    fun scanBlockedReason(): String? {
+        val guide = landmarkStore.overlay.value
+        return when {
+            !guide.faceDetected -> "I can't see your face yet — line it up with the outline, then tap Scan."
+            guide.alignmentHint != null -> "${guide.alignmentHint}, then tap Scan. The outline turns green when you're lined up."
+            else -> null
+        }
+    }
+
+    /** Does nothing unless [scanBlockedReason] is null; the Scan button is disabled in that case anyway. */
     fun startScan() {
         if (_uiState.value.stage == FaceScanStage.ANALYZING) return
+        if (scanBlockedReason() != null) return
         _uiState.update { it.copy(stage = FaceScanStage.ANALYZING) }
-        chatBot.setOpen(true)
+        // The chat opens once there's a result: open now, it would cover the camera guide while
+        // the scan collects frames, and the user couldn't see if they'd drifted off-angle.
+        chatBot.setOpen(false)
         consultationStartedAt = System.currentTimeMillis()
         chatBot.pushBotMessage("Analyzing your face and hair, hold still...")
         viewModelScope.launch {
             try {
                 val result = faceAnalyzer.analyzeCameraFrame()
+                chatBot.setOpen(true)
                 _uiState.update { it.copy(stage = FaceScanStage.CONFIRM_RESULT, scanResult = result) }
                 chatBot.pushBotMessage(
                     "I detected a ${result.faceShape.displayName} face shape" +
@@ -98,9 +117,11 @@ class FaceScanViewModel(
                     quickReplies = listOf(CONFIRM_LABEL, CONSULT_LABEL, FIX_SCAN_LABEL)
                 )
             } catch (error: NoFaceDetectedException) {
+                chatBot.setOpen(true)
                 _uiState.update { it.copy(stage = FaceScanStage.IDLE) }
                 chatBot.pushBotMessage(error.message ?: "I couldn't see a face. Line up with the outline and try again.")
             } catch (error: Exception) {
+                chatBot.setOpen(true)
                 _uiState.update { it.copy(stage = FaceScanStage.IDLE) }
                 chatBot.pushBotMessage("Scan failed (${error.message}). Please try again.")
             }
@@ -302,6 +323,13 @@ class FaceScanViewModel(
     fun rescan() {
         consultationId = UUID.randomUUID().toString()
         _uiState.update { FaceScanUiState(stage = FaceScanStage.IDLE, afterRescan = true) }
+        val blocked = scanBlockedReason()
+        if (blocked != null) {
+            // Close the chat so the camera guide is visible to line up with.
+            chatBot.pushBotMessage(blocked)
+            chatBot.setOpen(false)
+            return
+        }
         chatBot.pushBotMessage("Rescanning — hold still...")
         startScan()
     }

@@ -59,7 +59,7 @@ fun HairConsultantNavHost(container: AppContainer) {
         ) {
             composable(Screen.Login.route) {
                 val viewModel: LoginViewModel = viewModel(factory = ViewModelFactory(container) { c ->
-                    LoginViewModel(c.authRepository)
+                    LoginViewModel(c.authRepository, c.userRepository)
                 })
                 LoginScreen(
                     viewModel = viewModel,
