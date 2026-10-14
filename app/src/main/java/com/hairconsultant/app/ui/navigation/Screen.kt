@@ -15,10 +15,12 @@ sealed class Screen(val route: String) {
     data object FaceScan : Screen("face_scan")
     data object ImageUpload : Screen("image_upload")
     data object Profile : Screen("profile")
+    /** Isolated DeepAR curtains.deepar test — not part of bottom nav / SceneView AR. */
+    data object DeepArCurtainsTest : Screen("deepar_curtains_test")
 
     companion object {
         /** Screens where a photo/analysis is in progress and shouldn't show chrome around it. */
-        val fullScreenRoutes = setOf(FaceScan.route)
+        val fullScreenRoutes = setOf(FaceScan.route, DeepArCurtainsTest.route)
     }
 }
 

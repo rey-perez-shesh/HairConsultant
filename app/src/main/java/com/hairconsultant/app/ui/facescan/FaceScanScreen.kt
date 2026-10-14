@@ -1,12 +1,13 @@
 ﻿package com.hairconsultant.app.ui.facescan
 
 import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -24,12 +25,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -39,6 +43,9 @@ import com.google.accompanist.permissions.rememberPermissionState
 import com.hairconsultant.app.ui.chatbot.ChatBotSheet
 import com.hairconsultant.app.ui.chatbot.rememberChatBotSheetState
 import com.hairconsultant.app.ui.components.ChatFab
+import com.hairconsultant.app.ui.deepar.DeepArCurtainsActivity
+import com.hairconsultant.app.ui.deepar.DeepArCurtainsSession
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
@@ -48,13 +55,44 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
     val chatState by viewModel.chatState.collectAsState()
     val sheetState = rememberChatBotSheetState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
     val faceArAttachment = remember { FaceArSceneAttachment() }
+
+    // Keep CameraPreview mounted; only pause CameraX while DeepAR Activity owns the camera.
+    var deepArCameraPaused by remember { mutableStateOf(false) }
+
+    val deepArLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // DeepAR frees the camera in onPause/close; brief settle then re-enable preview.
+        scope.launch {
+            delay(80)
+            deepArCameraPaused = false
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (!cameraPermissionState.status.isGranted) {
             cameraPermissionState.launchPermissionRequest()
         }
+    }
+
+    // Launch DeepAR without tearing down CameraPreview (that caused the black screen).
+    LaunchedEffect(uiState.triedOnHaircut?.id) {
+        val haircut = uiState.triedOnHaircut ?: return@LaunchedEffect
+        if (!HairstyleArCatalog.shouldUseDeepAr(haircut)) return@LaunchedEffect
+
+        val effect = HairstyleArCatalog.deepArEffectPath(haircut)
+            ?: DeepArCurtainsSession.DEFAULT_EFFECT_ASSET_PATH
+
+        deepArCameraPaused = true
+        // Let CameraX unbind before DeepAR grabs the camera.
+        delay(120)
+        deepArLauncher.launch(
+            DeepArCurtainsActivity.intent(context, effect, haircut.name)
+        )
+        viewModel.clearTryOn()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -65,17 +103,34 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
                 backgroundBlurEnabled = uiState.triedOnHaircut != null,
                 suppressOverlayDrawing = uiState.triedOnHaircut != null,
                 faceArAttachment = faceArAttachment,
+                cameraEnabled = !deepArCameraPaused,
                 modifier = Modifier.fillMaxSize()
             )
             // Warm the Meshy GLB in the background once suggestions exist (before tap).
-            WigWarmupHost(enabled = uiState.suggestions.isNotEmpty())
+            WigWarmupHost(enabled = uiState.suggestions.isNotEmpty() && !deepArCameraPaused)
             uiState.triedOnHaircut?.let { haircut ->
-                ArTryOnOverlay(
-                    haircut = haircut,
-                    landmarkStore = viewModel.landmarkStore,
-                    faceArAttachment = faceArAttachment,
-                    hairColor = uiState.tryOnHairColor
-                )
+                if (HairstyleArCatalog.shouldUseDeepAr(haircut)) {
+                    // DeepAR Activity handles try-on; no SceneView/PNG overlay.
+                } else if (HairstyleArCatalog.hasDedicatedGlb(haircut)) {
+                    ArTryOnOverlay(
+                        haircut = haircut,
+                        landmarkStore = viewModel.landmarkStore,
+                        faceArAttachment = faceArAttachment,
+                        hairColor = uiState.tryOnHairColor
+                    )
+                } else if (HairstyleArCatalog.hasPngTryOn(haircut)) {
+                    PngTryOnOverlay(
+                        haircut = haircut,
+                        landmarkStore = viewModel.landmarkStore
+                    )
+                } else {
+                    ArTryOnOverlay(
+                        haircut = haircut,
+                        landmarkStore = viewModel.landmarkStore,
+                        faceArAttachment = faceArAttachment,
+                        hairColor = uiState.tryOnHairColor
+                    )
+                }
             }
         } else {
             Column(
@@ -99,7 +154,7 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
             }
         }
 
-        if (uiState.triedOnHaircut != null) {
+        if (uiState.triedOnHaircut != null && !HairstyleArCatalog.shouldUseDeepAr(uiState.triedOnHaircut!!)) {
             FloatingActionButton(
                 onClick = viewModel::clearTryOn,
                 modifier = Modifier.align(Alignment.TopEnd).padding(20.dp)
@@ -107,7 +162,7 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
         }
 
         val hasInitialAnalysis = uiState.stage != FaceScanStage.IDLE && uiState.stage != FaceScanStage.ANALYZING
-        if (hasInitialAnalysis) {
+        if (hasInitialAnalysis && !deepArCameraPaused) {
             ExtendedFloatingActionButton(
                 onClick = viewModel::rescan,
                 icon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
@@ -127,7 +182,7 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
             }
         }
 
-        if (uiState.suggestions.isNotEmpty()) {
+        if (uiState.suggestions.isNotEmpty() && !deepArCameraPaused) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -148,7 +203,7 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
             }
         }
 
-        if (cameraPermissionState.status.isGranted && uiState.stage == FaceScanStage.IDLE) {
+        if (cameraPermissionState.status.isGranted && uiState.stage == FaceScanStage.IDLE && !deepArCameraPaused) {
             // Scanning is only allowed once the guide shows a face facing the camera; the guide's
             // own text says what to fix, so a disabled tap just does nothing.
             val guide by viewModel.landmarkStore.overlay.collectAsState()
@@ -177,10 +232,12 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
             }
         }
 
-        ChatFab(
-            onClick = { viewModel.chatBot.setOpen(true) },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)
-        )
+        if (!deepArCameraPaused) {
+            ChatFab(
+                onClick = { viewModel.chatBot.setOpen(true) },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)
+            )
+        }
     }
 
     if (chatState.isOpen) {
@@ -195,5 +252,3 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
         )
     }
 }
-
-

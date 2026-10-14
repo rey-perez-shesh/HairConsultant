@@ -21,7 +21,7 @@ val localProperties = Properties().apply {
 
 android {
     namespace = "com.hairconsultant.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.hairconsultant.app"
@@ -45,6 +45,12 @@ android {
             "String",
             "GEMINI_API_KEY",
             "\"${localProperties.getProperty("GEMINI_API_KEY", "")}\""
+        )
+        // Isolated DeepAR curtains test screen only (Profile → DeepAR test).
+        buildConfigField(
+            "String",
+            "DEEPAR_LICENSE_KEY",
+            "\"${localProperties.getProperty("DEEPAR_LICENSE_KEY", "")}\""
         )
     }
 
@@ -158,6 +164,9 @@ dependencies {
 
     // Face AR try-on (Filament / SceneView GLB overlay)
     implementation(libs.sceneview)
+
+    // Isolated DeepAR curtains.deepar test screen only — does not replace SceneView AR.
+    implementation(libs.deepar)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

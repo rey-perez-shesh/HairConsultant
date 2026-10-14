@@ -20,6 +20,7 @@ import com.hairconsultant.app.ui.auth.LoginViewModel
 import com.hairconsultant.app.ui.auth.RegisterScreen
 import com.hairconsultant.app.ui.auth.RegisterViewModel
 import com.hairconsultant.app.ui.components.HairConsultantBottomBar
+import com.hairconsultant.app.ui.deepar.DeepArCurtainsTestScreen
 import com.hairconsultant.app.ui.facescan.FaceScanScreen
 import com.hairconsultant.app.ui.facescan.FaceScanViewModel
 import com.hairconsultant.app.ui.home.HomeScreen
@@ -37,7 +38,8 @@ fun HairConsultantNavHost(container: AppContainer) {
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val showBottomBar = bottomNavItems.any { it.screen.route == currentRoute }
+    val showBottomBar = bottomNavItems.any { it.screen.route == currentRoute } &&
+        currentRoute !in Screen.fullScreenRoutes
 
     Scaffold(
         bottomBar = {
@@ -133,7 +135,16 @@ fun HairConsultantNavHost(container: AppContainer) {
                 })
                 ProfileScreen(
                     viewModel = viewModel,
-                    onLoggedOut = { navController.navigate(Screen.Login.route) { popUpTo(0) } }
+                    onLoggedOut = { navController.navigate(Screen.Login.route) { popUpTo(0) } },
+                    onDeepArCurtainsTest = {
+                        navController.navigate(Screen.DeepArCurtainsTest.route)
+                    }
+                )
+            }
+            // Isolated DeepAR test — not wired into SceneView / MediaPipe try-on.
+            composable(Screen.DeepArCurtainsTest.route) {
+                DeepArCurtainsTestScreen(
+                    onClose = { navController.popBackStack() }
                 )
             }
         }

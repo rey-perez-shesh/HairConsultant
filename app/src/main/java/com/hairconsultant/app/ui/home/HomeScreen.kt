@@ -15,11 +15,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -33,6 +35,9 @@ import com.hairconsultant.app.ui.components.ChatFab
 import com.hairconsultant.app.ui.components.ClusterRow
 import com.hairconsultant.app.ui.components.FilterDropdown
 import com.hairconsultant.app.ui.components.HaircutDetailDialog
+import com.hairconsultant.app.ui.deepar.DeepArCurtainsActivity
+import com.hairconsultant.app.ui.deepar.DeepArCurtainsSession
+import com.hairconsultant.app.ui.facescan.HairstyleArCatalog
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,6 +47,7 @@ fun HomeScreen(viewModel: HomeViewModel) {
     val chatState by viewModel.chatState.collectAsState()
     val sheetState = rememberChatBotSheetState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (uiState.isLoading && uiState.clusters.isEmpty()) {
@@ -110,11 +116,23 @@ fun HomeScreen(viewModel: HomeViewModel) {
     }
 
     uiState.cameraTryOnHaircut?.let { haircut ->
-        Dialog(
-            onDismissRequest = viewModel::closeCameraTryOn,
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            CameraTryOnScreen(haircut = haircut, onClose = viewModel::closeCameraTryOn)
+        if (HairstyleArCatalog.shouldUseDeepAr(haircut)) {
+            // DeepAR needs a real Activity + SurfaceView — Compose Dialog breaks init.
+            LaunchedEffect(haircut.id) {
+                val effect = HairstyleArCatalog.deepArEffectPath(haircut)
+                    ?: DeepArCurtainsSession.DEFAULT_EFFECT_ASSET_PATH
+                context.startActivity(
+                    DeepArCurtainsActivity.intent(context, effect, haircut.name)
+                )
+                viewModel.closeCameraTryOn()
+            }
+        } else {
+            Dialog(
+                onDismissRequest = viewModel::closeCameraTryOn,
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                CameraTryOnScreen(haircut = haircut, onClose = viewModel::closeCameraTryOn)
+            }
         }
     }
 }

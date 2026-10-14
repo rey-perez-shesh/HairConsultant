@@ -218,7 +218,7 @@ object SampleData {
                 genderStyle = MASCULINE
             ),
             Seed(
-                "Short Bob", listOf(OVAL, HEART, DIAMOND),
+                "Classic Blunt Bob", listOf(OVAL, HEART, DIAMOND),
                 "A chin-grazing bob adds soft width at the jaw to balance a heart or diamond face, while an oval face wears the clean, blunt silhouette with ease.",
                 genderStyle = FEMININE,
                 imageUrl = THUMB_CLASSIC_BLUNT_BOB

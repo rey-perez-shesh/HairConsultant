@@ -6,3 +6,7 @@
 -dontwarn com.google.mediapipe.**
 -dontwarn com.google.mlkit.**
 
+# Isolated DeepAR curtains test
+-keep class ai.deepar.** { *; }
+-dontwarn ai.deepar.**
+

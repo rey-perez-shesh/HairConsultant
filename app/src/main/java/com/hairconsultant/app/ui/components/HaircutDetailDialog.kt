@@ -25,11 +25,12 @@ import com.hairconsultant.app.ui.facescan.HairstyleArCatalog
 
 /**
  * Quick-look preview shown when a haircut card is tapped while just browsing.
- * "Try This Hairstyle" opens the existing GLB AR try-on when mapped in [HairstyleArCatalog].
+ * "Try This Hairstyle" opens live try-on (GLB, DeepAR curtains, or temporary 2D PNG)
+ * via [HairstyleArCatalog].
  */
 @Composable
 fun HaircutDetailDialog(haircut: Haircut, onDismiss: () -> Unit, onTryOn: () -> Unit) {
-    val hasArGlb = HairstyleArCatalog.hasDedicatedGlb(haircut)
+    val canTryOn = HairstyleArCatalog.canTryOn(haircut)
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -62,7 +63,7 @@ fun HaircutDetailDialog(haircut: Haircut, onDismiss: () -> Unit, onTryOn: () -> 
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             TextButton(onClick = onDismiss) { Text("Close") }
-                            if (hasArGlb) {
+                            if (canTryOn) {
                                 Button(onClick = onTryOn) { Text("Try This Hairstyle") }
                             } else {
                                 Text(

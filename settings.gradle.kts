@@ -19,6 +19,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Isolated DeepAR curtains test only — does not replace SceneView / MediaPipe AR.
+        maven {
+            url = uri("https://sdk.developer.deepar.ai/maven-android-repository/releases/")
+        }
     }
 }
 

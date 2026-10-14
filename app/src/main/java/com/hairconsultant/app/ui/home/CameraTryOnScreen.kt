@@ -30,25 +30,35 @@ import androidx.compose.ui.unit.dp
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import com.hairconsultant.app.data.analysis.FaceLandmarkStore
-import com.hairconsultant.app.domain.model.Haircut
-import com.hairconsultant.app.ui.facescan.ArTryOnOverlay
-import com.hairconsultant.app.ui.facescan.CameraPreview
-import com.hairconsultant.app.ui.facescan.FaceArSceneAttachment
+import com.hairconsultant.app.ui.facescan.PngTryOnOverlay
+import com.hairconsultant.app.ui.deepar.DeepArCurtainsTestScreen
+import com.hairconsultant.app.ui.facescan.HairstyleArCatalog
 import com.hairconsultant.app.ui.facescan.HairColorPreset
 import com.hairconsultant.app.ui.facescan.HairColorStrip
-import com.hairconsultant.app.ui.facescan.HairstyleArCatalog
+import com.hairconsultant.app.ui.facescan.FaceArSceneAttachment
+import com.hairconsultant.app.ui.facescan.CameraPreview
+import com.hairconsultant.app.ui.facescan.ArTryOnOverlay
+import com.hairconsultant.app.domain.model.Haircut
+import com.hairconsultant.app.data.analysis.FaceLandmarkStore
 
 /**
  * Live camera try-on launched from a Home catalog card.
  *
- * - Cards with a dedicated GLB in [HairstyleArCatalog] (Slicked Back, Buzz Cut, â€¦)
- *   use the same Face Scan AR path: CameraX + MediaPipe + HeadPoseEstimator + SceneView GLB.
- * - Other cards keep the existing 2D hair-swap preview until their GLB is mapped.
+ * - Styles with a mapped `.deepar` launch [DeepArCurtainsActivity] when
+ *   [HairstyleArCatalog.USE_DEEPAR_TRY_ON] is true.
+ * - Cards with a dedicated GLB use SceneView (unchanged).
+ * - Other cards use temporary 2D PNG or hair-swap preview.
+ *
+ * **Revert DeepAR try-on:** set [HairstyleArCatalog.USE_DEEPAR_TRY_ON] to `false`.
  */
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun CameraTryOnScreen(haircut: Haircut, onClose: () -> Unit) {
+    if (HairstyleArCatalog.shouldUseDeepAr(haircut)) {
+        DeepArCurtainsTestScreen(haircut = haircut, onClose = onClose)
+        return
+    }
+
     val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
 
     LaunchedEffect(Unit) {
@@ -59,10 +69,10 @@ fun CameraTryOnScreen(haircut: Haircut, onClose: () -> Unit) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (cameraPermissionState.status.isGranted) {
-            if (HairstyleArCatalog.hasDedicatedGlb(haircut)) {
-                CatalogGlbArTryOn(haircut = haircut)
-            } else {
-                HairSwapCameraPreview(haircut = haircut, modifier = Modifier.fillMaxSize())
+            when {
+                HairstyleArCatalog.hasDedicatedGlb(haircut) -> CatalogGlbArTryOn(haircut = haircut)
+                HairstyleArCatalog.hasPngTryOn(haircut) -> CatalogPngArTryOn(haircut = haircut)
+                else -> HairSwapCameraPreview(haircut = haircut, modifier = Modifier.fillMaxSize())
             }
         } else {
             Column(
@@ -130,6 +140,30 @@ private fun CatalogGlbArTryOn(haircut: Haircut) {
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(16.dp)
+        )
+    }
+}
+
+/**
+ * Existing CameraPreview + MediaPipe + HeadPoseEstimator with a temporary 2D PNG on the crown.
+ * No SceneView / GLB — keeps IDs compatible for a later PNG → GLB swap.
+ */
+@Composable
+private fun CatalogPngArTryOn(haircut: Haircut) {
+    val landmarkStore = remember { FaceLandmarkStore() }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        CameraPreview(
+            landmarkStore = landmarkStore,
+            hairRemovalEnabled = true,
+            backgroundBlurEnabled = true,
+            suppressOverlayDrawing = true,
+            faceArAttachment = null,
+            modifier = Modifier.fillMaxSize()
+        )
+        PngTryOnOverlay(
+            haircut = haircut,
+            landmarkStore = landmarkStore
         )
     }
 }

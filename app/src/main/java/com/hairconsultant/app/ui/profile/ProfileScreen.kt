@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.History
@@ -68,7 +69,11 @@ import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(viewModel: ProfileViewModel, onLoggedOut: () -> Unit) {
+fun ProfileScreen(
+    viewModel: ProfileViewModel,
+    onLoggedOut: () -> Unit,
+    onDeepArCurtainsTest: () -> Unit = {}
+) {
     val uiState by viewModel.uiState.collectAsState()
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -82,6 +87,14 @@ fun ProfileScreen(viewModel: ProfileViewModel, onLoggedOut: () -> Unit) {
                             Icon(Icons.Filled.MoreVert, contentDescription = "Settings")
                         }
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("DeepAR curtains test") },
+                                leadingIcon = { Icon(Icons.Filled.Face, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDeepArCurtainsTest()
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text("Clear history") },
                                 leadingIcon = { Icon(Icons.Filled.DeleteSweep, contentDescription = null) },

@@ -1,14 +1,60 @@
 ﻿package com.hairconsultant.app.ui.facescan
 
+import android.content.Context
 import com.hairconsultant.app.domain.model.Haircut
 
 /**
- * Extensible haircut-id → GLB mapping for AR try-on.
+ * Extensible haircut-id → GLB / temporary 2D PNG mapping for AR try-on.
  *
  * Local offsets/scale are applied after the shared crown / tracking transform — they do not
  * change HeadPoseEstimator, MediaPipe, or global calibration constants.
+ *
+ * Temporary 2D PNGs use the same catalog IDs as GLB styles so a later swap
+ * (`hairstyle.png` → `hairstyle.glb`) only needs a [AssetConfig] row — selection/UI stay the same.
  */
 object HairstyleArCatalog {
+
+    /**
+     * When true, catalog styles with a mapped `.deepar` asset open DeepAR try-on
+     * instead of SceneView GLB / PNG overlay.
+     *
+     * **Revert:** set to `false` and rebuild — those styles fall back to GLB/PNG.
+     */
+    const val USE_DEEPAR_TRY_ON: Boolean = true
+
+    /** @deprecated Use [USE_DEEPAR_TRY_ON]. Kept so older call sites/comments still compile. */
+    const val USE_DEEPAR_FOR_CURTAINS: Boolean = USE_DEEPAR_TRY_ON
+
+    /**
+     * Catalog display name (lowercase) → asset under `assets/effects/`.
+     * Names must match [SampleData] haircut titles.
+     */
+    private val deeparByName: Map<String, String> = mapOf(
+        "curtains" to "effects/curtains.deepar",
+        "wavy fringe crop" to "effects/wavy_fringe_crop.deepar",
+        "face framing layered cut" to "effects/face_framing_layered_cut.deepar",
+        "french crop" to "effects/french_crop.deepar",
+        "classic blunt bob" to "effects/blunt_bob.deepar",
+        "curly quiff" to "effects/curly_quiff.deepar",
+        "textured crop medium length" to "effects/textured_crop_medium_length.deepar",
+        "shaggy wolfcut" to "effects/shaggy_wolfcut.deepar",
+        "layered curly shag" to "effects/layered_curly_shag.deepar",
+        "curtain bangs wavy lob" to "effects/curtain_bangs_wavy_lob.deepar"
+    )
+
+    /** Catalog id → DeepAR asset (backup when name lookup misses). */
+    private val deeparById: Map<String, String> = mapOf(
+        ID_CURTAINS to "effects/curtains.deepar",
+        "SHORT_WAVY_4" to "effects/wavy_fringe_crop.deepar",
+        "MEDIUM_STRAIGHT_4" to "effects/face_framing_layered_cut.deepar",
+        ID_FRENCH_CROP to "effects/french_crop.deepar",
+        "SHORT_STRAIGHT_6" to "effects/blunt_bob.deepar",
+        "MEDIUM_CURLY_5" to "effects/curly_quiff.deepar",
+        "MEDIUM_STRAIGHT_6" to "effects/textured_crop_medium_length.deepar",
+        ID_SHAGGY_WOLFCUT to "effects/shaggy_wolfcut.deepar",
+        "MEDIUM_CURLY_1" to "effects/layered_curly_shag.deepar",
+        "MEDIUM_WAVY_0" to "effects/curtain_bangs_wavy_lob.deepar"
+    )
 
     data class AssetConfig(
         val modelAsset: String,
@@ -38,6 +84,25 @@ object HairstyleArCatalog {
          * the live PreviewView face already shows where SceneView has no hair.
          */
         val enableFaceCutout: Boolean = true
+    )
+
+    /**
+     * Temporary 2D PNG overlay fit (same ID / selection path as GLB).
+     * Offsets are fractions of measured head width/height; scale multiplies head-width fit.
+     */
+    data class PngAssetConfig(
+        /** Drawable resource name under res/drawable (e.g. thumb_curtains or overlay_curtains). */
+        val drawableName: String,
+        /** Horizontal nudge as a fraction of head width (+ = screen right). */
+        val localOffsetX: Float = 0f,
+        /** Vertical nudge as a fraction of head height (+ = down). */
+        val localOffsetY: Float = -0.15f,
+        /** Multiplier on head-width-based PNG scale. */
+        val localScaleMul: Float = 2.2f,
+        /**
+         * Vertical anchor inside the PNG: 0 = top edge on crown, 0.5 = image center on crown.
+         */
+        val anchorY: Float = 0.18f
     )
 
     /**
@@ -160,9 +225,69 @@ object HairstyleArCatalog {
 
     /** True when this card should open the real SceneView GLB AR try-on (not 2D photo-swap). */
     fun hasDedicatedGlb(haircut: Haircut): Boolean {
+        // DeepAR try-on takes priority while the flag is on.
+        if (shouldUseDeepAr(haircut)) return false
         val nameKey = haircut.name.trim().lowercase()
         if (nameKey in byName.keys && nameKey in DEDICATED_STYLE_NAMES) return true
         return haircut.id in DEDICATED_GLB_IDS
+    }
+
+    /** Curtains catalog card (SampleData id / name). */
+    fun isCurtainsHaircut(haircut: Haircut): Boolean {
+        val nameKey = haircut.name.trim().lowercase()
+        return haircut.id == ID_CURTAINS || nameKey == "curtains"
+    }
+
+    /** Asset path under `assets/` for DeepAR, or null if this style has no effect. */
+    fun deepArEffectPath(haircut: Haircut): String? {
+        val nameKey = haircut.name.trim().lowercase()
+        deeparByName[nameKey]?.let { return it }
+        return deeparById[haircut.id]
+    }
+
+    /**
+     * Live DeepAR try-on when [USE_DEEPAR_TRY_ON] is on and this haircut has a mapped `.deepar`.
+     */
+    fun shouldUseDeepAr(haircut: Haircut): Boolean =
+        USE_DEEPAR_TRY_ON && deepArEffectPath(haircut) != null
+
+    /** @deprecated Prefer [shouldUseDeepAr]. */
+    fun shouldUseDeepArCurtains(haircut: Haircut): Boolean = shouldUseDeepAr(haircut)
+
+    /**
+     * Temporary 2D PNG try-on when no dedicated GLB is mapped.
+     * Uses catalog [Haircut.imageUrl] drawable (`thumb_*`) or a dedicated `overlay_*` if present.
+     */
+    fun hasPngTryOn(haircut: Haircut): Boolean {
+        if (shouldUseDeepAr(haircut)) return false
+        if (hasDedicatedGlb(haircut)) return false
+        return drawableNameForPng(haircut) != null
+    }
+
+    /** Home / Face Scan: open live try-on when GLB, DeepAR, or temporary 2D PNG is available. */
+    fun canTryOn(haircut: Haircut): Boolean =
+        shouldUseDeepAr(haircut) || hasDedicatedGlb(haircut) || hasPngTryOn(haircut)
+
+    /**
+     * Resolve temporary 2D PNG fit for the selected catalog card.
+     * Same IDs as GLB — replace with [AssetConfig] later without changing selection.
+     */
+    fun pngConfigFor(haircut: Haircut): PngAssetConfig? {
+        if (hasDedicatedGlb(haircut)) return null
+        val drawableName = drawableNameForPng(haircut) ?: return null
+        val override = pngFitById[haircut.id] ?: pngFitByName[haircut.name.trim().lowercase()]
+        return (override ?: DEFAULT_PNG_FIT).copy(drawableName = drawableName)
+    }
+
+    /** Resolve drawable id for a PNG config; prefers `overlay_*` when that resource exists. */
+    fun resolvePngDrawableRes(context: Context, config: PngAssetConfig): Int {
+        val overlayName = config.drawableName
+            .removePrefix("thumb_")
+            .let { "overlay_$it" }
+        val overlayId = context.resources.getIdentifier(overlayName, "drawable", context.packageName)
+        if (overlayId != 0) return overlayId
+        val id = context.resources.getIdentifier(config.drawableName, "drawable", context.packageName)
+        return id
     }
 
     /**
@@ -184,6 +309,19 @@ object HairstyleArCatalog {
     fun modelAssetFor(haircut: Haircut): String =
         configFor(haircut)?.modelAsset ?: WIG_ASSET
 
+    private fun drawableNameForPng(haircut: Haircut): String? {
+        pngDrawableById[haircut.id]?.let { return it }
+        return drawableNameFromImageUrl(haircut.imageUrl)
+    }
+
+    private fun drawableNameFromImageUrl(imageUrl: String): String? {
+        val marker = "/drawable/"
+        val i = imageUrl.indexOf(marker)
+        if (i < 0) return null
+        val name = imageUrl.substring(i + marker.length).substringBefore('?').substringBefore('#')
+        return name.takeIf { it.isNotBlank() && !it.startsWith("http") }
+    }
+
     private val DEDICATED_STYLE_NAMES = setOf(
         "boy cut",
         "curtains",
@@ -192,4 +330,23 @@ object HairstyleArCatalog {
         "long wavy hair",
         "shaggy wolfcut"
     )
+
+    private val DEFAULT_PNG_FIT = PngAssetConfig(drawableName = "")
+
+    /** Optional per-style 2D fit overrides (IDs match SampleData / future GLB rows). */
+    private val pngFitById: Map<String, PngAssetConfig> = mapOf(
+        "SHORT_STRAIGHT_2" to PngAssetConfig("", localOffsetY = -0.12f, localScaleMul = 2.1f),
+        "SHORT_STRAIGHT_3" to PngAssetConfig("", localOffsetY = -0.10f, localScaleMul = 2.3f),
+        "SHORT_STRAIGHT_6" to PngAssetConfig("", localOffsetY = -0.08f, localScaleMul = 2.0f, anchorY = 0.22f),
+        "SHORT_STRAIGHT_8" to PngAssetConfig("", localOffsetY = -0.14f, localScaleMul = 2.15f),
+        "LONG_STRAIGHT_0" to PngAssetConfig("", localOffsetY = -0.05f, localScaleMul = 2.6f, anchorY = 0.12f),
+        "LONG_STRAIGHT_1" to PngAssetConfig("", localOffsetY = -0.05f, localScaleMul = 2.55f, anchorY = 0.12f),
+        "LONG_CURLY_0" to PngAssetConfig("", localOffsetY = -0.04f, localScaleMul = 2.7f, anchorY = 0.12f),
+        "MEDIUM_WAVY_3" to PngAssetConfig("", localOffsetY = -0.08f, localScaleMul = 2.4f)
+    )
+
+    private val pngFitByName: Map<String, PngAssetConfig> = emptyMap()
+
+    /** Explicit drawable name overrides when imageUrl is remote / missing. */
+    private val pngDrawableById: Map<String, String> = emptyMap()
 }

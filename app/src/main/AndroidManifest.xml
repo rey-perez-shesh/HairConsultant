@@ -23,6 +23,14 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules">
 
+        <!-- DeepAR (Android 12+) — background segmentation / native libs; optional. -->
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libOpenCL-pixel.so"
+            android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -33,6 +41,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Isolated DeepAR curtains try-on (real Activity — required for SDK init). -->
+        <activity
+            android:name=".ui.deepar.DeepArCurtainsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.HairConsultant" />
     </application>
 
 </manifest>
