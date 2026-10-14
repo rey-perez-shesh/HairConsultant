@@ -112,7 +112,9 @@ class StillImageFaceLandmarker(context: Context) : AutoCloseable {
                     .build()
             )
             .setRunningMode(RunningMode.IMAGE)
-            .setNumFaces(1)
+            // More than one so a photo with other people in it can be detected and refused; the
+            // app analyzes one person, and extra faces would mix their face/hair into the result.
+            .setNumFaces(MAX_FACES_TO_DETECT)
             .setMinFaceDetectionConfidence(0.5f)
             .setMinFacePresenceConfidence(0.5f)
             .setMinTrackingConfidence(0.5f)
@@ -126,17 +128,27 @@ class StillImageFaceLandmarker(context: Context) : AutoCloseable {
 
     fun detect(bitmap: Bitmap): StillFaceDetection? {
         val result = faceLandmarker?.detect(BitmapImageBuilder(bitmap).build()) ?: return null
-        val landmarks = result.faceLandmarks().firstOrNull() ?: return null
-        if (landmarks.isEmpty()) return null
-        return StillFaceDetection(landmarks.map { LandmarkPoint(it.x(), it.y()) }, result.headAngles())
+        val faces = result.faceLandmarks().filter { it.isNotEmpty() }
+        val landmarks = faces.firstOrNull() ?: return null
+        return StillFaceDetection(
+            points = landmarks.map { LandmarkPoint(it.x(), it.y()) },
+            angles = result.headAngles(),
+            faceCount = faces.size
+        )
     }
 
     override fun close() {
         faceLandmarker?.close()
     }
+
+    private companion object {
+        /** Enough to tell one face from several; the count only needs to exceed 1. */
+        const val MAX_FACES_TO_DETECT = 3
+    }
 }
 
-data class StillFaceDetection(val points: List<LandmarkPoint>, val angles: HeadAngles?)
+/** [points] and [angles] describe the first face found; [faceCount] is how many faces the photo has (up to 3). */
+data class StillFaceDetection(val points: List<LandmarkPoint>, val angles: HeadAngles?, val faceCount: Int = 1)
 
 /** The first face's head angles, or null if MediaPipe didn't return a transformation matrix. */
 private fun FaceLandmarkerResult.headAngles(): HeadAngles? =

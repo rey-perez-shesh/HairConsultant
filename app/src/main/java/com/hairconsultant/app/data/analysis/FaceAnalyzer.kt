@@ -107,6 +107,9 @@ class LandmarkFaceAnalyzer(
         try {
             val detection = stillLandmarker.detect(bitmap)
                 ?: throw NoFaceDetectedException("I couldn't find a face in that photo. Try a clearer front-facing shot.")
+            // The app analyzes one person: with others in the photo, the measured face and the hair
+            // analysis (which covers every head in the image) could belong to someone else.
+            if (detection.faceCount > 1) throw NoFaceDetectedException(MULTIPLE_FACES_MESSAGE)
             // Same rule as the live scan: a turned or tilted head gives the wrong face shape, so
             // an angled photo is refused rather than measured.
             FaceAlignment.photoRejection(detection.angles)?.let { throw NoFaceDetectedException(it) }
@@ -192,6 +195,9 @@ class LandmarkFaceAnalyzer(
 
         /** How long a live scan collects frames before deciding from what it has. */
         private const val SCAN_WINDOW_MS = 3_000L
+
+        private const val MULTIPLE_FACES_MESSAGE =
+            "I can see more than one face in that photo. Please upload a photo with only your face in it."
     }
 
     private fun buildHairNote(
