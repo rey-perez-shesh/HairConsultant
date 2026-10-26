@@ -1,5 +1,6 @@
 package com.hairconsultant.app.ui.home
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +37,6 @@ import com.hairconsultant.app.ui.components.ClusterRow
 import com.hairconsultant.app.ui.components.FilterDropdown
 import com.hairconsultant.app.ui.components.HaircutDetailDialog
 import com.hairconsultant.app.ui.deepar.DeepArCurtainsActivity
-import com.hairconsultant.app.ui.deepar.DeepArCurtainsSession
 import com.hairconsultant.app.ui.facescan.HairstyleArCatalog
 import kotlinx.coroutines.launch
 
@@ -119,11 +119,14 @@ fun HomeScreen(viewModel: HomeViewModel) {
         if (HairstyleArCatalog.shouldUseDeepAr(haircut)) {
             // DeepAR needs a real Activity + SurfaceView — Compose Dialog breaks init.
             LaunchedEffect(haircut.id) {
-                val effect = HairstyleArCatalog.deepArEffectPath(haircut)
-                    ?: DeepArCurtainsSession.DEFAULT_EFFECT_ASSET_PATH
-                context.startActivity(
-                    DeepArCurtainsActivity.intent(context, effect, haircut.name)
-                )
+                val effect = HairstyleArCatalog.resolveDeepArEffect(context, haircut)
+                if (effect != null) {
+                    context.startActivity(
+                        DeepArCurtainsActivity.intent(context, effect, haircut.name)
+                    )
+                } else {
+                    Toast.makeText(context, "Couldn't download this try-on — check your connection", Toast.LENGTH_SHORT).show()
+                }
                 viewModel.closeCameraTryOn()
             }
         } else {

@@ -1,6 +1,5 @@
 package com.hairconsultant.app.data.remote.gemini
 
-import com.hairconsultant.app.BuildConfig
 import com.hairconsultant.app.data.HairKnowledgeBase
 import com.hairconsultant.app.data.HairKnowledgeBase.KnowledgeChunk
 import kotlin.math.sqrt
@@ -14,10 +13,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
@@ -84,8 +80,8 @@ class HttpGeminiTextEmbedder(
 ) : TextEmbedder {
 
     override suspend fun embed(text: String): FloatArray {
-        check(BuildConfig.GEMINI_API_KEY.isNotBlank()) {
-            "Set GEMINI_API_KEY in local.properties to enable the AI consultant."
+        check(GeminiEndpoint.isConfigured) {
+            GeminiEndpoint.NOT_CONFIGURED_MESSAGE
         }
         val requestJson = buildJsonObject {
             put(
@@ -93,11 +89,7 @@ class HttpGeminiTextEmbedder(
                 buildJsonObject { putJsonArray("parts") { add(buildJsonObject { put("text", text) }) } }
             )
         }
-        val request = Request.Builder()
-            .url("https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent")
-            .addHeader("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
-            .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-            .build()
+        val request = GeminiEndpoint.post("text-embedding-004:embedContent", requestJson.toString())
 
         val responseBody = httpClient.awaitBody(request)
         val values = Json.parseToJsonElement(responseBody).jsonObject["embedding"]

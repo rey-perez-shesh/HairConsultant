@@ -26,6 +26,7 @@ import ai.deepar.ar.CameraResolutionPreset
 import ai.deepar.ar.DeepAR
 import ai.deepar.ar.DeepARImageFormat
 import com.hairconsultant.app.BuildConfig
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ExecutorService
@@ -74,7 +75,7 @@ class DeepArCurtainsSession(
             return
         }
         if (!effectAssetExists()) {
-            onError("Missing assets/$effectAssetPath")
+            onError(if (isDownloadedEffect) "Missing $effectAssetPath" else "Missing assets/$effectAssetPath")
             return
         }
         val activity = context.findActivity()
@@ -307,13 +308,21 @@ class DeepArCurtainsSession(
         return rotation == Surface.ROTATION_0 || rotation == Surface.ROTATION_180
     }
 
+    /** Dashboard-uploaded effects arrive as absolute paths into ArAssetCache, not `assets/` paths. */
+    private val isDownloadedEffect: Boolean
+        get() = effectAssetPath.startsWith("/")
+
     private fun effectAssetExists(): Boolean =
-        runCatching {
-            context.assets.open(effectAssetPath).use { true }
-        }.getOrDefault(false)
+        if (isDownloadedEffect) {
+            File(effectAssetPath).isFile
+        } else {
+            runCatching {
+                context.assets.open(effectAssetPath).use { true }
+            }.getOrDefault(false)
+        }
 
     private val effectUri: String
-        get() = "file:///android_asset/$effectAssetPath"
+        get() = if (isDownloadedEffect) effectAssetPath else "file:///android_asset/$effectAssetPath"
 
     private fun Context.findActivity(): Activity? {
         var ctx: Context? = this

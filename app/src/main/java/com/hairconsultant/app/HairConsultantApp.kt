@@ -9,6 +9,7 @@ class HairConsultantApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        AppCheckSetup.install()
         container = AppContainer(this)
     }
 }

@@ -7,6 +7,7 @@ import com.hairconsultant.app.data.local.dao.HaircutDao
 import com.hairconsultant.app.data.local.entity.ChatMessageEntity
 import com.hairconsultant.app.data.local.entity.ChatSummaryEntity
 import com.hairconsultant.app.data.local.entity.HaircutEntity
+import com.hairconsultant.app.data.local.entity.toDomain
 import com.hairconsultant.app.data.remote.firebase.ChatHistoryRemoteRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.domain.model.ChatMessage
@@ -133,18 +134,7 @@ class ChatHistoryRepositoryImpl(
     }
 }
 
-private fun HaircutEntity.toHaircutOrNull() =
-    runCatching {
-        Haircut(
-            id = id,
-            name = name,
-            imageUrl = imageUrl,
-            length = HairLength.valueOf(length),
-            texture = HairTexture.valueOf(texture),
-            recommendedFaceShapes = recommendedFaceShapes.mapNotNull { runCatching { FaceShape.valueOf(it) }.getOrNull() },
-            description = description
-        )
-    }.getOrNull()
+private fun HaircutEntity.toHaircutOrNull(): Haircut? = toDomain()
 
 private fun ChatMessageEntity.toDomain(haircutsById: Map<String, Haircut>) = ChatMessage(
     id = id,

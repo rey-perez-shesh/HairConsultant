@@ -1,7 +1,10 @@
 ﻿package com.hairconsultant.app.ui.facescan
 
 import android.content.Context
+import com.hairconsultant.app.data.remote.ArAssetCache
+import com.hairconsultant.app.domain.model.ArType
 import com.hairconsultant.app.domain.model.Haircut
+import com.hairconsultant.app.ui.deepar.DeepArCurtainsSession
 
 /**
  * Extensible haircut-id → GLB / temporary 2D PNG mapping for AR try-on.
@@ -223,8 +226,35 @@ object HairstyleArCatalog {
         "shaggy wolfcut" to SHAGGY_WOLFCUT_FIT
     )
 
+    /**
+     * The dashboard-uploaded asset type for [haircut], or null when the style uses the bundled
+     * mapping below ([ArType.AUTO], or an explicit type that has no uploaded file yet).
+     */
+    fun remoteArType(haircut: Haircut): ArType? = when (haircut.arType) {
+        ArType.DEEPAR, ArType.GLB -> haircut.arType.takeIf { haircut.arAssetUrl != null }
+        ArType.AUTO, ArType.NONE -> null
+    }
+
+    private fun isTryOnDisabled(haircut: Haircut): Boolean = haircut.arType == ArType.NONE
+
+    /** True when the GLB comes from the dashboard (downloaded through [ArAssetCache]), not `assets/`. */
+    fun isRemoteGlb(haircut: Haircut): Boolean = remoteArType(haircut) == ArType.GLB
+
+    /**
+     * DeepAR effect to launch for [haircut]: a downloaded dashboard upload (absolute file path) or
+     * a bundled `assets/` path. Null only when a dashboard upload couldn't be downloaded.
+     */
+    suspend fun resolveDeepArEffect(context: Context, haircut: Haircut): String? =
+        if (remoteArType(haircut) == ArType.DEEPAR) {
+            ArAssetCache.localFile(context, haircut)?.absolutePath
+        } else {
+            deepArEffectPath(haircut) ?: DeepArCurtainsSession.DEFAULT_EFFECT_ASSET_PATH
+        }
+
     /** True when this card should open the real SceneView GLB AR try-on (not 2D photo-swap). */
     fun hasDedicatedGlb(haircut: Haircut): Boolean {
+        if (isTryOnDisabled(haircut)) return false
+        remoteArType(haircut)?.let { return it == ArType.GLB }
         // DeepAR try-on takes priority while the flag is on.
         if (shouldUseDeepAr(haircut)) return false
         val nameKey = haircut.name.trim().lowercase()
@@ -248,8 +278,11 @@ object HairstyleArCatalog {
     /**
      * Live DeepAR try-on when [USE_DEEPAR_TRY_ON] is on and this haircut has a mapped `.deepar`.
      */
-    fun shouldUseDeepAr(haircut: Haircut): Boolean =
-        USE_DEEPAR_TRY_ON && deepArEffectPath(haircut) != null
+    fun shouldUseDeepAr(haircut: Haircut): Boolean {
+        if (!USE_DEEPAR_TRY_ON || isTryOnDisabled(haircut)) return false
+        remoteArType(haircut)?.let { return it == ArType.DEEPAR }
+        return deepArEffectPath(haircut) != null
+    }
 
     /** @deprecated Prefer [shouldUseDeepAr]. */
     fun shouldUseDeepArCurtains(haircut: Haircut): Boolean = shouldUseDeepAr(haircut)
@@ -259,6 +292,7 @@ object HairstyleArCatalog {
      * Uses catalog [Haircut.imageUrl] drawable (`thumb_*`) or a dedicated `overlay_*` if present.
      */
     fun hasPngTryOn(haircut: Haircut): Boolean {
+        if (isTryOnDisabled(haircut) || remoteArType(haircut) != null) return false
         if (shouldUseDeepAr(haircut)) return false
         if (hasDedicatedGlb(haircut)) return false
         return drawableNameForPng(haircut) != null
@@ -295,6 +329,20 @@ object HairstyleArCatalog {
      * Name is checked first so "Curtains" / "French Crop" always load the correct GLB.
      */
     fun configFor(haircut: Haircut): AssetConfig? {
+        if (isRemoteGlb(haircut)) {
+            val fit = haircut.glbFit
+            return AssetConfig(
+                // Not an `assets/` path: a stable label for logs/tint; the file comes from ArAssetCache.
+                modelAsset = "remote/${haircut.id}_v${haircut.arAssetVersion}.glb",
+                localScaleMul = fit.scaleMul,
+                localOffsetX = fit.offsetX,
+                localOffsetY = fit.offsetY,
+                localOffsetZ = fit.offsetZ,
+                modelYawOffset = fit.yawOffset,
+                alignCrownToMaxY = true,
+                enableFaceCutout = false
+            )
+        }
         val nameKey = haircut.name.trim().lowercase()
         if (nameKey in DEDICATED_STYLE_NAMES) {
             byName[nameKey]?.let { return it }

@@ -30,7 +30,7 @@ import com.hairconsultant.app.data.local.entity.UserEntity
         ChatMessageEntity::class,
         ChatSummaryEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

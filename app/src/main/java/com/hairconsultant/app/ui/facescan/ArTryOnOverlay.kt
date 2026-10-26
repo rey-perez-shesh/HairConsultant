@@ -33,6 +33,7 @@ import com.hairconsultant.app.data.analysis.FaceShapeClassifier
 import com.hairconsultant.app.data.analysis.HeadPose
 import com.hairconsultant.app.data.analysis.HeadPoseEstimator
 import com.hairconsultant.app.data.analysis.LandmarkPoint
+import com.hairconsultant.app.data.remote.ArAssetCache
 import com.hairconsultant.app.domain.model.Haircut
 import io.github.sceneview.SceneView
 import io.github.sceneview.math.Position
@@ -137,8 +138,8 @@ fun BoxScope.ArTryOnOverlay(
         }
     }
 
-    val wigAsset = remember(haircut.id, haircut.name) { HairstyleArCatalog.modelAssetFor(haircut) }
-    val assetConfig = remember(haircut.id, haircut.name) { HairstyleArCatalog.configFor(haircut) }
+    val wigAsset = remember(haircut.id, haircut.name, haircut.arAssetVersion) { HairstyleArCatalog.modelAssetFor(haircut) }
+    val assetConfig = remember(haircut.id, haircut.name, haircut.arAssetVersion) { HairstyleArCatalog.configFor(haircut) }
 
     LaunchedEffect(haircut.id, wigAsset, faceArAttachment) {
         val sceneView = faceArAttachment.sceneView ?: return@LaunchedEffect
@@ -156,8 +157,15 @@ fun BoxScope.ArTryOnOverlay(
         faceOcclusion = null
 
         val loaded = try {
-            withTimeout(GLB_LOAD_TIMEOUT_MS) {
-                sceneView.modelLoader.loadModelInstance(wigAsset)
+            if (HairstyleArCatalog.isRemoteGlb(haircut)) {
+                // Dashboard-uploaded GLB: download (or reuse the cached copy), then load from disk.
+                val file = ArAssetCache.localFile(context, haircut)
+                    ?: error("couldn't download this style's 3D model")
+                sceneView.modelLoader.createModelInstance(file)
+            } else {
+                withTimeout(GLB_LOAD_TIMEOUT_MS) {
+                    sceneView.modelLoader.loadModelInstance(wigAsset)
+                }
             }
         } catch (_: TimeoutCancellationException) {
             status = "GLB load timed out"

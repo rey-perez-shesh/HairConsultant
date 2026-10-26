@@ -13,11 +13,14 @@ interface HaircutDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(haircuts: List<HaircutEntity>)
 
-    @Query("SELECT * FROM haircuts")
+    @Query("SELECT * FROM haircuts ORDER BY sortOrder, name")
     fun observeAll(): Flow<List<HaircutEntity>>
 
-    @Query("SELECT * FROM haircuts WHERE length = :length AND texture = :texture")
+    @Query("SELECT * FROM haircuts WHERE length = :length AND texture = :texture ORDER BY sortOrder, name")
     fun observeByCluster(length: String, texture: String): Flow<List<HaircutEntity>>
+
+    @Query("SELECT COUNT(*) FROM haircuts")
+    suspend fun count(): Int
 
     @Query("DELETE FROM haircuts")
     suspend fun clear()

@@ -68,6 +68,8 @@ class UserRepositoryImpl(
         val remoteUser = remote.fetch(userId)
         if (remoteUser != null) {
             userDao.upsert(remoteUser.toEntity())
+            runCatching { remote.markActive(userId) }
+                .onFailure { Log.w(TAG, "Couldn't update last-active time for $userId", it) }
             return
         }
         val localUser = userDao.get(userId) ?: return

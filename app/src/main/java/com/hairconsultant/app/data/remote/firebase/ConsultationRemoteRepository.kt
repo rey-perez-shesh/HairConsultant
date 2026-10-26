@@ -1,6 +1,8 @@
 package com.hairconsultant.app.data.remote.firebase
 
+import android.os.Build
 import com.google.firebase.firestore.FirebaseFirestore
+import com.hairconsultant.app.BuildConfig
 import com.hairconsultant.app.domain.model.Consultation
 import com.hairconsultant.app.domain.model.ConsultationSource
 import com.hairconsultant.app.domain.model.FaceShape
@@ -12,6 +14,7 @@ import kotlinx.coroutines.tasks.await
 /** Firestore-backed sync of consultation history, so it survives a reinstall/new device. */
 interface ConsultationRemoteRepository {
     suspend fun save(consultation: Consultation)
+    suspend fun setFavorite(consultationId: String, isFavorite: Boolean)
     suspend fun fetchHistory(userId: String): List<Consultation>
 }
 
@@ -33,9 +36,22 @@ class FirestoreConsultationRepository(
                 "sourceImageUrl" to consultation.sourceImageUrl,
                 "resultImageUrl" to consultation.resultImageUrl,
                 "isFavorite" to consultation.isFavorite,
-                "createdAtEpochMillis" to consultation.createdAtEpochMillis
+                "createdAtEpochMillis" to consultation.createdAtEpochMillis,
+                // Analysis quality details for the admin dashboard's classifier-health analytics.
+                "hairColor" to consultation.scanResult.hairColor.name,
+                "faceShapeConfidence" to consultation.scanResult.faceShapeConfidence.toDouble(),
+                "hairLengthConfidence" to consultation.scanResult.hairLengthConfidence.toDouble(),
+                "hairTextureConfidence" to consultation.scanResult.hairTextureConfidence.toDouble(),
+                "verifierFaceShape" to consultation.scanResult.verifierFaceShape?.name,
+                "sourcesAgreed" to consultation.scanResult.sourcesAgreed,
+                "appVersion" to BuildConfig.VERSION_NAME,
+                "deviceModel" to "${Build.MANUFACTURER} ${Build.MODEL}"
             )
         ).await()
+    }
+
+    override suspend fun setFavorite(consultationId: String, isFavorite: Boolean) {
+        collection.document(consultationId).update("isFavorite", isFavorite).await()
     }
 
     override suspend fun fetchHistory(userId: String): List<Consultation> {
@@ -70,6 +86,10 @@ class MockConsultationRemoteRepository : ConsultationRemoteRepository {
 
     override suspend fun save(consultation: Consultation) {
         store[consultation.id] = consultation
+    }
+
+    override suspend fun setFavorite(consultationId: String, isFavorite: Boolean) {
+        store[consultationId]?.let { store[consultationId] = it.copy(isFavorite = isFavorite) }
     }
 
     override suspend fun fetchHistory(userId: String): List<Consultation> =

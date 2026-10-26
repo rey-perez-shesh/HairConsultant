@@ -81,6 +81,8 @@ class UserRepositoryTest {
             if (failSaves) error("PERMISSION_DENIED")
             stored[user.id] = user
         }
+
+        override suspend fun markActive(userId: String) = Unit
     }
 
     private class FakeUserDao : UserDao {

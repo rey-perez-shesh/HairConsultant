@@ -22,10 +22,10 @@ import com.hairconsultant.app.domain.model.TreatmentPreference
  * heart/diamond faces need width added back at the jaw or forehead, oval is naturally balanced).
  * Every entry's [Haircut.description] states the specific reason it suits those shapes.
  *
- * [com.hairconsultant.app.data.repository.HaircutRepositoryImpl] is the single source of truth
- * for this catalog: every refresh reconciles Firestore's "haircuts" collection to exactly match
- * this list (creating/updating/deleting documents as needed) and writes it straight into Room, so
- * the catalog shown never depends on a network round trip and never drifts from what's in code.
+ * This is only the bundled fallback and the original seed: Firestore's "haircuts" collection,
+ * managed from the admin dashboard, is the source of truth.
+ * [com.hairconsultant.app.data.repository.HaircutRepositoryImpl] shows this list on a fresh
+ * install until the Firestore catalog has been fetched into Room.
  */
 object SampleData {
 

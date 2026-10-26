@@ -3,15 +3,14 @@ package com.hairconsultant.app.data.repository
 import android.util.Log
 import com.hairconsultant.app.data.SampleData
 import com.hairconsultant.app.data.local.dao.HaircutDao
-import com.hairconsultant.app.data.local.entity.HaircutEntity
+import com.hairconsultant.app.data.local.entity.toDomain
+import com.hairconsultant.app.data.local.entity.toEntity
 import com.hairconsultant.app.data.remote.firebase.HaircutRemoteRepository
 import com.hairconsultant.app.domain.model.FaceShape
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.HaircutCluster
-import com.hairconsultant.app.domain.model.HaircutGenderStyle
-import com.hairconsultant.app.domain.model.TreatmentPreference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -49,42 +48,21 @@ class HaircutRepositoryImpl(
     }
 
     override suspend fun refresh() {
-        // SampleData is the single source of truth for the catalog. Every launch pushes the exact
-        // current catalog to Firestore (creating/updating/deleting documents as needed) purely as
-        // a synced backup, then writes it straight into Room — the app never depends on a network
-        // round trip to know what to show, so a flaky reconcile doesn't affect the catalog seen.
-        // Room goes first: offline, Firestore writes don't complete until the device reconnects,
-        // so awaiting the reconcile first left a fresh install's Home on a spinner indefinitely.
-        haircutDao.replaceAll(SampleData.allHaircuts.map { it.toEntity() })
-        runCatching { remote.reconcile(SampleData.allHaircuts) }
-            .onFailure { Log.w(TAG, "Couldn't sync the catalog to Firestore", it) }
+        // Firestore (edited from the admin dashboard) is the source of truth; Room is the offline
+        // cache the UI observes. A fresh install gets the bundled SampleData first so Home never
+        // waits on the network, then the Firestore catalog replaces it once it arrives. If the
+        // fetch fails or comes back empty (offline, empty cache) the cached catalog stays as-is.
+        if (haircutDao.count() == 0) {
+            haircutDao.replaceAll(SampleData.allHaircuts.map { it.toEntity() })
+        }
+        val remoteCatalog = runCatching { remote.fetchActive() }
+            .onFailure { Log.w(TAG, "Couldn't fetch the catalog from Firestore", it) }
+            .getOrNull()
+            ?: return
+        haircutDao.replaceAll(remoteCatalog.map { it.toEntity() })
     }
 
     private companion object {
         const val TAG = "HaircutRepository"
     }
 }
-
-private fun HaircutEntity.toDomain() = Haircut(
-    id = id,
-    name = name,
-    imageUrl = imageUrl,
-    length = runCatching { HairLength.valueOf(length) }.getOrDefault(HairLength.MEDIUM),
-    texture = runCatching { HairTexture.valueOf(texture) }.getOrDefault(HairTexture.STRAIGHT),
-    recommendedFaceShapes = recommendedFaceShapes.mapNotNull { runCatching { FaceShape.valueOf(it) }.getOrNull() },
-    genderStyle = runCatching { HaircutGenderStyle.valueOf(genderStyle) }.getOrDefault(HaircutGenderStyle.UNISEX),
-    treatment = runCatching { TreatmentPreference.valueOf(treatment) }.getOrDefault(TreatmentPreference.NONE),
-    description = description
-)
-
-private fun Haircut.toEntity() = HaircutEntity(
-    id = id,
-    name = name,
-    imageUrl = imageUrl,
-    length = length.name,
-    texture = texture.name,
-    recommendedFaceShapes = recommendedFaceShapes.map { it.name },
-    genderStyle = genderStyle.name,
-    treatment = treatment.name,
-    description = description
-)

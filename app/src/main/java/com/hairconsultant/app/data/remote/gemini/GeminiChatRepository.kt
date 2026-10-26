@@ -1,6 +1,5 @@
 package com.hairconsultant.app.data.remote.gemini
 
-import com.hairconsultant.app.BuildConfig
 import com.hairconsultant.app.data.HairKnowledgeBase
 import com.hairconsultant.app.domain.model.ChatMessage
 import com.hairconsultant.app.domain.model.ChatSender
@@ -16,10 +15,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
@@ -103,8 +99,8 @@ class GeminiChatRepositoryImpl(
         context: String,
         conversationSummary: String?
     ): Result<String> {
-        if (BuildConfig.GEMINI_API_KEY.isBlank()) {
-            return Result.failure(IllegalStateException("Set GEMINI_API_KEY in local.properties to enable the AI consultant."))
+        if (!GeminiEndpoint.isConfigured) {
+            return Result.failure(IllegalStateException(GeminiEndpoint.NOT_CONFIGURED_MESSAGE))
         }
         return runCatching {
             // Retrieval-augmented grounding: fetch just the knowledge passages relevant to this
@@ -156,11 +152,7 @@ class GeminiChatRepositoryImpl(
                 )
             }
 
-            val request = Request.Builder()
-                .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")
-                .addHeader("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
-                .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-                .build()
+            val request = GeminiEndpoint.post("gemini-2.5-flash:generateContent", requestJson.toString())
 
             val responseBody = httpClient.awaitBody(request)
             extractText(responseBody)
@@ -169,8 +161,8 @@ class GeminiChatRepositoryImpl(
 
     override suspend fun summarizeConversation(previousSummary: String?, newMessages: List<ChatMessage>): Result<String> {
         if (newMessages.isEmpty()) return Result.success(previousSummary.orEmpty())
-        if (BuildConfig.GEMINI_API_KEY.isBlank()) {
-            return Result.failure(IllegalStateException("Set GEMINI_API_KEY in local.properties to enable the AI consultant."))
+        if (!GeminiEndpoint.isConfigured) {
+            return Result.failure(IllegalStateException(GeminiEndpoint.NOT_CONFIGURED_MESSAGE))
         }
         return runCatching {
             val transcript = newMessages.joinToString(separator = "\n") { "${it.sender.name}: ${it.text}" }
@@ -205,11 +197,7 @@ class GeminiChatRepositoryImpl(
                 )
             }
 
-            val request = Request.Builder()
-                .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")
-                .addHeader("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
-                .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-                .build()
+            val request = GeminiEndpoint.post("gemini-2.5-flash:generateContent", requestJson.toString())
 
             val responseBody = httpClient.awaitBody(request)
             extractText(responseBody)
@@ -218,8 +206,8 @@ class GeminiChatRepositoryImpl(
 
     override suspend fun extractPreferences(conversation: List<ChatMessage>): Result<ExtractedPreferences> {
         if (conversation.none { it.sender == ChatSender.USER }) return Result.success(ExtractedPreferences())
-        if (BuildConfig.GEMINI_API_KEY.isBlank()) {
-            return Result.failure(IllegalStateException("Set GEMINI_API_KEY in local.properties to enable the AI consultant."))
+        if (!GeminiEndpoint.isConfigured) {
+            return Result.failure(IllegalStateException(GeminiEndpoint.NOT_CONFIGURED_MESSAGE))
         }
         return runCatching {
             val transcript = conversation.joinToString(separator = "\n") { "${it.sender.name}: ${it.text}" }
@@ -248,11 +236,7 @@ class GeminiChatRepositoryImpl(
                 )
             }
 
-            val request = Request.Builder()
-                .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")
-                .addHeader("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
-                .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-                .build()
+            val request = GeminiEndpoint.post("gemini-2.5-flash:generateContent", requestJson.toString())
 
             val responseBody = httpClient.awaitBody(request)
             parseExtractedPreferences(extractText(responseBody))
@@ -267,8 +251,8 @@ class GeminiChatRepositoryImpl(
         pickCount: Int
     ): Result<RankedHaircuts> {
         if (candidates.isEmpty()) return Result.failure(IllegalArgumentException("No candidate haircuts to rank."))
-        if (BuildConfig.GEMINI_API_KEY.isBlank()) {
-            return Result.failure(IllegalStateException("Set GEMINI_API_KEY in local.properties to enable the AI consultant."))
+        if (!GeminiEndpoint.isConfigured) {
+            return Result.failure(IllegalStateException(GeminiEndpoint.NOT_CONFIGURED_MESSAGE))
         }
         return runCatching {
             val userSaid = consultation.filter { it.sender == ChatSender.USER }.joinToString(separator = " ") { it.text }
@@ -334,11 +318,7 @@ class GeminiChatRepositoryImpl(
                 )
             }
 
-            val request = Request.Builder()
-                .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")
-                .addHeader("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
-                .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-                .build()
+            val request = GeminiEndpoint.post("gemini-2.5-flash:generateContent", requestJson.toString())
 
             // Thinking takes noticeably longer than a plain chat reply.
             val responseBody = httpClient.newBuilder().readTimeout(90, TimeUnit.SECONDS).build().awaitBody(request)

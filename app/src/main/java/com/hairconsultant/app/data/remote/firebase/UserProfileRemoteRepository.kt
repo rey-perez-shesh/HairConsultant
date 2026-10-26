@@ -1,6 +1,7 @@
 package com.hairconsultant.app.data.remote.firebase
 
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.hairconsultant.app.domain.model.Gender
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
@@ -12,6 +13,9 @@ import kotlinx.coroutines.tasks.await
 interface UserProfileRemoteRepository {
     suspend fun fetch(userId: String): User?
     suspend fun save(user: User)
+
+    /** Stamps the profile's last-active time (shown in the admin dashboard's user list). */
+    suspend fun markActive(userId: String)
 }
 
 class FirestoreUserProfileRepository(
@@ -53,8 +57,14 @@ class FirestoreUserProfileRepository(
                 "preferredHairLength" to user.preferredHairLength?.name,
                 "preferredHairTexture" to user.preferredHairTexture?.name,
                 "preferredTreatment" to user.preferredTreatment?.name
-            )
+            ),
+            // Merge so fields only the admin backend writes (e.g. "disabled") survive profile edits.
+            SetOptions.merge()
         ).await()
+    }
+
+    override suspend fun markActive(userId: String) {
+        collection.document(userId).update("lastActiveAtEpochMillis", System.currentTimeMillis()).await()
     }
 }
 
@@ -67,4 +77,6 @@ class MockUserProfileRepository : UserProfileRemoteRepository {
     override suspend fun save(user: User) {
         store[user.id] = user
     }
+
+    override suspend fun markActive(userId: String) = Unit
 }

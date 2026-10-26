@@ -8,8 +8,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.google.gms.google.services)
-    // Apply the Google Services plugin once google-services.json is added:
-    // id("com.google.gms.google-services")
+    alias(libs.plugins.firebase.crashlytics)
 }
 
 val localProperties = Properties().apply {
@@ -35,7 +34,13 @@ android {
         // Backend API base URL (PostgreSQL-backed service) and Gemini API key are injected
         // from local.properties so secrets never get committed. Add these keys locally:
         //   BACKEND_BASE_URL=https://your-backend.example.com/
-        //   GEMINI_API_KEY=your-key-here
+        //   GEMINI_PROXY_URL=https://asia-southeast1-hiarconsultant.cloudfunctions.net/geminiProxy
+        //   GEMINI_API_KEY=your-key-here   (local testing only; leave empty once the proxy is deployed)
+        buildConfigField(
+            "String",
+            "GEMINI_PROXY_URL",
+            "\"${localProperties.getProperty("GEMINI_PROXY_URL", "")}\""
+        )
         buildConfigField(
             "String",
             "BACKEND_BASE_URL",
@@ -158,6 +163,11 @@ dependencies {
     // Connected per project setup; no data model is stored here yet. Firestore is the
     // source of truth for profiles/consultations/favorites (see AppContainer.realtimeDatabase).
     implementation(libs.firebase.database)
+    // Usage analytics, crash reports, and App Check attestation (monitored from the admin side).
+    implementation(libs.firebase.analytics)
+    implementation(libs.firebase.crashlytics)
+    implementation(libs.firebase.appcheck.playintegrity)
+    debugImplementation(libs.firebase.appcheck.debug)
 
     // Runtime permissions (camera)
     implementation(libs.accompanist.permissions)

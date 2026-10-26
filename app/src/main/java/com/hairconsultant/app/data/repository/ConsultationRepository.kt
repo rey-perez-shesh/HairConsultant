@@ -4,6 +4,7 @@ import android.util.Log
 import com.hairconsultant.app.data.local.dao.ConsultationDao
 import com.hairconsultant.app.data.local.dao.HaircutDao
 import com.hairconsultant.app.data.local.entity.ConsultationEntity
+import com.hairconsultant.app.data.local.entity.toDomain
 import com.hairconsultant.app.data.remote.firebase.ConsultationRemoteRepository
 import com.hairconsultant.app.domain.model.Consultation
 import com.hairconsultant.app.domain.model.ConsultationSource
@@ -47,6 +48,8 @@ class ConsultationRepositoryImpl(
 
     override suspend fun setFavorite(consultationId: String, isFavorite: Boolean) {
         consultationDao.setFavorite(consultationId, isFavorite)
+        runCatching { remote.setFavorite(consultationId, isFavorite) }
+            .onFailure { Log.w(TAG, "Couldn't sync favorite for $consultationId to Firestore", it) }
     }
 
     override suspend fun clearHistory(userId: String) {
@@ -62,18 +65,7 @@ class ConsultationRepositoryImpl(
     }
 }
 
-private fun com.hairconsultant.app.data.local.entity.HaircutEntity.toHaircutOrNull() =
-    runCatching {
-        com.hairconsultant.app.domain.model.Haircut(
-            id = id,
-            name = name,
-            imageUrl = imageUrl,
-            length = HairLength.valueOf(length),
-            texture = HairTexture.valueOf(texture),
-            recommendedFaceShapes = recommendedFaceShapes.mapNotNull { runCatching { FaceShape.valueOf(it) }.getOrNull() },
-            description = description
-        )
-    }.getOrNull()
+private fun com.hairconsultant.app.data.local.entity.HaircutEntity.toHaircutOrNull() = toDomain()
 
 private fun ConsultationEntity.toDomain(haircut: com.hairconsultant.app.domain.model.Haircut?) = Consultation(
     id = id,

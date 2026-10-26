@@ -1,6 +1,7 @@
 ﻿package com.hairconsultant.app.ui.facescan
 
 import android.Manifest
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -44,7 +45,6 @@ import com.hairconsultant.app.ui.chatbot.ChatBotSheet
 import com.hairconsultant.app.ui.chatbot.rememberChatBotSheetState
 import com.hairconsultant.app.ui.components.ChatFab
 import com.hairconsultant.app.ui.deepar.DeepArCurtainsActivity
-import com.hairconsultant.app.ui.deepar.DeepArCurtainsSession
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -83,8 +83,12 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
         val haircut = uiState.triedOnHaircut ?: return@LaunchedEffect
         if (!HairstyleArCatalog.shouldUseDeepAr(haircut)) return@LaunchedEffect
 
-        val effect = HairstyleArCatalog.deepArEffectPath(haircut)
-            ?: DeepArCurtainsSession.DEFAULT_EFFECT_ASSET_PATH
+        val effect = HairstyleArCatalog.resolveDeepArEffect(context, haircut)
+        if (effect == null) {
+            Toast.makeText(context, "Couldn't download this try-on — check your connection", Toast.LENGTH_SHORT).show()
+            viewModel.clearTryOn()
+            return@LaunchedEffect
+        }
 
         deepArCameraPaused = true
         // Let CameraX unbind before DeepAR grabs the camera.
