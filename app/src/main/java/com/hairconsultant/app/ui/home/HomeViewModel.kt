@@ -65,8 +65,9 @@ class HomeViewModel(
     init {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            haircutRepository.refresh()
+            haircutRepository.seedIfEmpty()
             _uiState.update { it.copy(isLoading = false) }
+            haircutRepository.syncWithRemote()
         }
         viewModelScope.launch {
             haircutRepository.observeClusters().collect { clusters ->

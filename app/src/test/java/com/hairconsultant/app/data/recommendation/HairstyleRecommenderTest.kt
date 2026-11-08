@@ -74,7 +74,8 @@ class HairstyleRecommenderTest {
             flowOf(listOf(HaircutCluster(HairLength.SHORT, HairTexture.STRAIGHT, haircuts)))
         override fun observeMatching(faceShape: FaceShape, length: HairLength, texture: HairTexture): Flow<List<Haircut>> =
             flowOf(haircuts)
-        override suspend fun refresh() = Unit
+        override suspend fun seedIfEmpty() = Unit
+        override suspend fun syncWithRemote() = Unit
     }
 
     /** [HairstyleRecommender.shortlist] never calls the AI; these exist only to satisfy the constructor. */

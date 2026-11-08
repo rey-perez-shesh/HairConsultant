@@ -10,7 +10,10 @@ import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.HaircutGenderStyle
 import com.hairconsultant.app.domain.model.TreatmentPreference
-import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * Firestore "haircuts" collection: the catalog's source of truth, edited from the admin dashboard
@@ -18,22 +21,31 @@ import kotlinx.coroutines.tasks.await
  */
 interface HaircutRemoteRepository {
     /**
-     * Every active style, or null when nothing usable came back (e.g. offline with an empty
-     * Firestore cache), so callers can keep whatever catalog they already have.
+     * Every active style, re-emitted whenever the dashboard changes the catalog. Snapshots with
+     * nothing usable (e.g. offline with an empty Firestore cache) aren't emitted, so callers keep
+     * whatever catalog they already have. Fails if Firestore ends the listener.
      */
-    suspend fun fetchActive(): List<Haircut>?
+    fun observeActive(): Flow<List<Haircut>>
 }
 
 class FirestoreHaircutRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) : HaircutRemoteRepository {
 
-    override suspend fun fetchActive(): List<Haircut>? {
-        val snapshot = firestore.collection("haircuts").get().await()
-        if (snapshot.isEmpty) return null
-        return snapshot.documents
-            .filter { it.getBoolean("isActive") != false }
-            .mapNotNull { it.toHaircutOrNull() }
+    override fun observeActive(): Flow<List<Haircut>> = callbackFlow {
+        val registration = firestore.collection("haircuts").addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                close(error)
+                return@addSnapshotListener
+            }
+            if (snapshot == null || snapshot.isEmpty) return@addSnapshotListener
+            trySend(
+                snapshot.documents
+                    .filter { it.getBoolean("isActive") != false }
+                    .mapNotNull { it.toHaircutOrNull() }
+            )
+        }
+        awaitClose { registration.remove() }
     }
 }
 
@@ -75,5 +87,5 @@ private fun DocumentSnapshot.toHaircutOrNull(): Haircut? {
 
 /** In-memory stand-in used until a Firebase project is attached. */
 class MockHaircutRemoteRepository : HaircutRemoteRepository {
-    override suspend fun fetchActive(): List<Haircut>? = null
+    override fun observeActive(): Flow<List<Haircut>> = emptyFlow()
 }

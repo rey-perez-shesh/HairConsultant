@@ -1,6 +1,7 @@
 ﻿package com.hairconsultant.app.ui.facescan
 
 import android.content.Context
+import com.hairconsultant.app.data.SampleData
 import com.hairconsultant.app.data.remote.ArAssetCache
 import com.hairconsultant.app.domain.model.ArType
 import com.hairconsultant.app.domain.model.Haircut
@@ -395,6 +396,10 @@ object HairstyleArCatalog {
 
     private val pngFitByName: Map<String, PngAssetConfig> = emptyMap()
 
-    /** Explicit drawable name overrides when imageUrl is remote / missing. */
-    private val pngDrawableById: Map<String, String> = emptyMap()
+    /** Bundled drawable per built-in style, so try-on survives the dashboard replacing its thumbnail. */
+    private val pngDrawableById: Map<String, String> by lazy {
+        SampleData.allHaircuts.mapNotNull { haircut ->
+            drawableNameFromImageUrl(haircut.imageUrl)?.let { haircut.id to it }
+        }.toMap()
+    }
 }

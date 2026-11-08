@@ -12,13 +12,17 @@ import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.HaircutCluster
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
 interface HaircutRepository {
     /** All haircuts grouped into the Home screen's length x texture clusters. */
     fun observeClusters(): Flow<List<HaircutCluster>>
     fun observeMatching(faceShape: FaceShape, length: HairLength, texture: HairTexture): Flow<List<Haircut>>
-    suspend fun refresh()
+    /** Gives a fresh install the bundled catalog, so Home never waits on the network. */
+    suspend fun seedIfEmpty()
+    /** Keeps the local catalog matching Firestore until cancelled, or until the listener fails. */
+    suspend fun syncWithRemote()
 }
 
 class HaircutRepositoryImpl(
@@ -47,19 +51,19 @@ class HaircutRepositoryImpl(
         entities.map { it.toDomain() }.filter { faceShape in it.recommendedFaceShapes }
     }
 
-    override suspend fun refresh() {
-        // Firestore (edited from the admin dashboard) is the source of truth; Room is the offline
-        // cache the UI observes. A fresh install gets the bundled SampleData first so Home never
-        // waits on the network, then the Firestore catalog replaces it once it arrives. If the
-        // fetch fails or comes back empty (offline, empty cache) the cached catalog stays as-is.
+    override suspend fun seedIfEmpty() {
         if (haircutDao.count() == 0) {
             haircutDao.replaceAll(SampleData.allHaircuts.map { it.toEntity() })
         }
-        val remoteCatalog = runCatching { remote.fetchActive() }
-            .onFailure { Log.w(TAG, "Couldn't fetch the catalog from Firestore", it) }
-            .getOrNull()
-            ?: return
-        haircutDao.replaceAll(remoteCatalog.map { it.toEntity() })
+    }
+
+    override suspend fun syncWithRemote() {
+        // Firestore (edited from the admin dashboard) is the source of truth; Room is the offline
+        // cache the UI observes, so every dashboard change reaches the screens through it. If the
+        // listener fails or has nothing to offer (offline, empty cache) the cached catalog stays as-is.
+        remote.observeActive()
+            .catch { Log.w(TAG, "Couldn't sync the catalog from Firestore", it) }
+            .collect { catalog -> haircutDao.replaceAll(catalog.map { it.toEntity() }) }
     }
 
     private companion object {

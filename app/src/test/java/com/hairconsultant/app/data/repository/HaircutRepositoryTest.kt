@@ -11,7 +11,10 @@ import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -35,34 +38,38 @@ class HaircutRepositoryTest {
     @Test
     fun freshInstallOfflineShowsBundledCatalog() = runBlocking {
         val dao = FakeHaircutDao()
-        HaircutRepositoryImpl(dao, FakeRemote(result = null)).refresh()
+        val repository = HaircutRepositoryImpl(dao, FakeRemote(emptyFlow()))
+        repository.seedIfEmpty()
+        repository.syncWithRemote()
         assertEquals(SampleData.allHaircuts.size, dao.rows.value.size)
     }
 
     @Test
     fun firestoreCatalogReplacesLocalOneWithAllDashboardFields() = runBlocking {
         val dao = FakeHaircutDao()
-        HaircutRepositoryImpl(dao, FakeRemote(result = listOf(dashboardStyle))).refresh()
-        val clusters = HaircutRepositoryImpl(dao, FakeRemote(result = null)).observeClusters().first()
+        HaircutRepositoryImpl(dao, FakeRemote(flowOf(listOf(dashboardStyle)))).syncWithRemote()
+        val clusters = HaircutRepositoryImpl(dao, FakeRemote(emptyFlow())).observeClusters().first()
         assertEquals(listOf(dashboardStyle), clusters.flatMap { it.haircuts })
     }
 
     @Test
-    fun failedFetchKeepsTheCachedCatalog() = runBlocking {
+    fun laterDashboardChangesReplaceTheCatalog() = runBlocking {
         val dao = FakeHaircutDao()
-        HaircutRepositoryImpl(dao, FakeRemote(result = listOf(dashboardStyle))).refresh()
-        HaircutRepositoryImpl(dao, FakeRemote(error = IllegalStateException("UNAVAILABLE"))).refresh()
+        val other = dashboardStyle.copy(id = "OTHER_STYLE")
+        HaircutRepositoryImpl(dao, FakeRemote(flowOf(listOf(dashboardStyle), listOf(other)))).syncWithRemote()
+        assertEquals(listOf("OTHER_STYLE"), dao.rows.value.map { it.id })
+    }
+
+    @Test
+    fun failedSyncKeepsTheCachedCatalog() = runBlocking {
+        val dao = FakeHaircutDao()
+        HaircutRepositoryImpl(dao, FakeRemote(flowOf(listOf(dashboardStyle)))).syncWithRemote()
+        HaircutRepositoryImpl(dao, FakeRemote(flow { throw IllegalStateException("UNAVAILABLE") })).syncWithRemote()
         assertEquals(listOf("NEW_STYLE"), dao.rows.value.map { it.id })
     }
 
-    private class FakeRemote(
-        private val result: List<Haircut>? = null,
-        private val error: Throwable? = null
-    ) : HaircutRemoteRepository {
-        override suspend fun fetchActive(): List<Haircut>? {
-            error?.let { throw it }
-            return result
-        }
+    private class FakeRemote(private val catalog: Flow<List<Haircut>>) : HaircutRemoteRepository {
+        override fun observeActive(): Flow<List<Haircut>> = catalog
     }
 
     private class FakeHaircutDao : HaircutDao {
