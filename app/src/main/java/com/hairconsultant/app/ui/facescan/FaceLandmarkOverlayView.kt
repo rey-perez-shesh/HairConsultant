@@ -10,6 +10,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
+import com.hairconsultant.app.data.analysis.FaceGuide
 import com.hairconsultant.app.data.analysis.FaceOverlayFrame
 import com.hairconsultant.app.data.analysis.HairMask
 import com.hairconsultant.app.data.analysis.HairMaskRefiner
@@ -54,7 +55,7 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         pathEffect = DashPathEffect(floatArrayOf(22f, 16f), 0f)
     }
-    /** Amber oval while a face is found but turned or tilted, so the warning reads at a glance. */
+    /** Amber oval while a face is found but turned, tilted or outside the oval, so the warning reads at a glance. */
     private val misalignedGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = WARNING_COLOR
         strokeWidth = 6f
@@ -124,14 +125,8 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val guideWidth = width * 0.72f
-        val guideHeight = guideWidth * 1.28f
-        ovalBounds.set(
-            (width - guideWidth) / 2f,
-            (height - guideHeight) / 2.4f,
-            (width + guideWidth) / 2f,
-            (height - guideHeight) / 2.4f + guideHeight
-        )
+        val (left, top, right, bottom) = FaceGuide.ovalBounds(width, height)
+        ovalBounds.set(left, top, right, bottom)
 
         val scale = max(width / frame.imageWidth.toFloat(), height / frame.imageHeight.toFloat())
         val offsetX = (width - frame.imageWidth * scale) / 2f

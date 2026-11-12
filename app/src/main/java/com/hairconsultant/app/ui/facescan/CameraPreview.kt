@@ -129,6 +129,10 @@ fun CameraPreview(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT
                 )
+                // The store needs the guide's size to tell whether the face sits inside its oval.
+                addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+                    landmarkStore.setGuideSize(view.width, view.height)
+                }
             }
             val root = FrameLayout(ctx).apply {
                 addView(previewView)

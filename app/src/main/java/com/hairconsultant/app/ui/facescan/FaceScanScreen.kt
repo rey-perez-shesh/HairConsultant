@@ -208,7 +208,7 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
         }
 
         if (cameraPermissionState.status.isGranted && uiState.stage == FaceScanStage.IDLE && !deepArCameraPaused) {
-            // Scanning is only allowed once the guide shows a face facing the camera; the guide's
+            // Scanning is only allowed once the guide shows a face inside the oval, facing the camera; the guide's
             // own text says what to fix, so a disabled tap just does nothing.
             val guide by viewModel.landmarkStore.overlay.collectAsState()
             val canScan = guide.faceDetected && guide.alignmentHint == null
@@ -231,7 +231,7 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
             ) {
                 Icon(
                     Icons.Filled.CameraAlt,
-                    contentDescription = if (canScan) "Scan face" else "Scan face — face the camera first"
+                    contentDescription = if (canScan) "Scan face" else "Scan face — ${guide.alignmentHint ?: "line up your face with the oval first"}"
                 )
             }
         }

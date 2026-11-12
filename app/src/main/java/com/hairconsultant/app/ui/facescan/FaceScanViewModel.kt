@@ -82,8 +82,9 @@ class FaceScanViewModel(
 
     /**
      * Why a scan can't start right now, or null when it can: the camera guide must have found a
-     * face that's facing the camera (see [com.hairconsultant.app.data.analysis.FaceAlignment]),
-     * since measuring a turned or tilted head gives the wrong face shape.
+     * face inside its oval ([com.hairconsultant.app.data.analysis.FaceGuide]) and facing the camera
+     * ([com.hairconsultant.app.data.analysis.FaceAlignment]), since measuring an off-center,
+     * turned or tilted head gives the wrong face shape.
      */
     fun scanBlockedReason(): String? {
         val guide = landmarkStore.overlay.value

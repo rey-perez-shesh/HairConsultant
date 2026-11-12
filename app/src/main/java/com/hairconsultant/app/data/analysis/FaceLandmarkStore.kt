@@ -15,7 +15,7 @@ data class FaceOverlayFrame(
     val statusMessage: String,
     val hairMask: HairMask? = null,
     val estimatedHairLength: HairLength? = null,
-    /** Set while a face is found but not facing the camera; the guide shows it as a warning. */
+    /** Set while a face is found but outside the guide oval or not facing the camera; the guide shows it as a warning. */
     val alignmentHint: String? = null
 ) {
     companion object {
@@ -57,6 +57,8 @@ class FaceLandmarkStore {
     private var latestAngles: HeadAngles? = null
     private var smoothedAngles: HeadAngles? = null
     private var warningShown = false
+    private var guideWidth = 0
+    private var guideHeight = 0
 
     /** Recent frames' face measurements, oldest first, so a scan can combine several (see [FaceAlignment]). */
     private val recentSamples = ArrayDeque<FaceFrameSample>()
@@ -89,6 +91,14 @@ class FaceLandmarkStore {
             }
         }
         emitOverlay()
+    }
+
+    /** Size of the live guide view, so frames can be checked against its oval ([FaceGuide]). */
+    fun setGuideSize(width: Int, height: Int) {
+        synchronized(lock) {
+            guideWidth = width
+            guideHeight = height
+        }
     }
 
     /** Frames measured at or after [elapsedMillis] ([SystemClock.elapsedRealtime] time), oldest first. */
@@ -152,10 +162,14 @@ class FaceLandmarkStore {
         val hair: HairMask?
         val angles: HeadAngles?
         val warn: Boolean
+        val viewWidth: Int
+        val viewHeight: Int
         synchronized(lock) {
             points = latestPoints ?: emptyList()
             angles = smoothedAngles
             warn = warningShown
+            viewWidth = guideWidth
+            viewHeight = guideHeight
             width = latestWidth.coerceAtLeast(1)
             height = latestHeight.coerceAtLeast(1)
             hair = latestHair
@@ -166,7 +180,13 @@ class FaceLandmarkStore {
         } else {
             null
         }
-        val alignmentHint = if (faceDetected && warn) FaceAlignment.liveGuideHint(angles) else null
+        // Position first: a face half out of frame can't be fixed by straightening the head.
+        val alignmentHint = if (faceDetected) {
+            FaceGuide.positionHint(points, width, height, viewWidth, viewHeight)
+                ?: if (warn) FaceAlignment.liveGuideHint(angles) else null
+        } else {
+            null
+        }
         val status = when {
             alignmentHint != null -> alignmentHint
             faceDetected && hairLength == HairLength.BALD ->
