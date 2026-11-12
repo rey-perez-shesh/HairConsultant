@@ -34,7 +34,7 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
     private var cachedScalpColor: Int = Color.rgb(205, 170, 145)
 
     private val meshPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#7EE0C6")
+        color = Color.parseColor("#F2F2F2")
         strokeWidth = 3f
         style = Paint.Style.STROKE
     }
@@ -49,18 +49,18 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         pathEffect = DashPathEffect(floatArrayOf(22f, 16f), 0f)
     }
+    /** Solid white once the face is locked in: state reads from the line's form, not only its colour. */
     private val foundGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#7EE0C6")
-        strokeWidth = 4f
+        color = Color.parseColor("#F2F2F2")
+        strokeWidth = 6f
         style = Paint.Style.STROKE
-        pathEffect = DashPathEffect(floatArrayOf(22f, 16f), 0f)
     }
-    /** Amber oval while a face is found but turned, tilted or outside the oval, so the warning reads at a glance. */
+    /** Broken amber oval while a face is found but turned, tilted or outside the oval, so the warning reads at a glance. */
     private val misalignedGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = WARNING_COLOR
         strokeWidth = 6f
         style = Paint.Style.STROKE
-        pathEffect = DashPathEffect(floatArrayOf(22f, 16f), 0f)
+        pathEffect = DashPathEffect(floatArrayOf(36f, 24f), 0f)
     }
     private val hairPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -178,9 +178,10 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
                 "Align face for wig try-on"
             else -> frame.statusMessage
         }
-        val warning = !hairRemovalEnabled && frame.alignmentHint != null
-        textPaint.color = if (warning) WARNING_COLOR else Color.WHITE
-        textPaint.textSize = if (warning) WARNING_TEXT_SIZE else TEXT_SIZE
+        // The alignment hint already leads the sign above the camera; repeating it across the face is noise.
+        if (!hairRemovalEnabled && frame.alignmentHint != null) return
+        textPaint.color = Color.WHITE
+        textPaint.textSize = TEXT_SIZE
         // Shrink rather than clip when a status line is wider than the screen.
         val maxWidth = width - 2 * TEXT_SIDE_PADDING
         val measured = textPaint.measureText(status)
@@ -189,14 +190,13 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
     }
 
     private companion object {
-        val WARNING_COLOR = Color.parseColor("#FFB74D")
+        val WARNING_COLOR = Color.parseColor("#F0B54D")
         const val TEXT_SIZE = 36f
-        const val WARNING_TEXT_SIZE = 44f
         const val TEXT_SIDE_PADDING = 32f
     }
 }
 
-private fun HairMask.toOverlayBitmap(color: Int = 0xAA9B59B6.toInt()): Bitmap {
+private fun HairMask.toOverlayBitmap(color: Int = 0x4DFFFFFF): Bitmap {
     val pixels = IntArray(width * height)
     for (index in labels.indices) {
         if (isHair(index)) pixels[index] = color

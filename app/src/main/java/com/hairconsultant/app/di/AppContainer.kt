@@ -12,6 +12,7 @@ import com.hairconsultant.app.data.analysis.MlKitFaceMeshVerifier
 import com.hairconsultant.app.data.analysis.StillImageFaceLandmarker
 import com.hairconsultant.app.data.analysis.StillImageHairSegmenter
 import com.hairconsultant.app.data.local.AppDatabase
+import com.hairconsultant.app.data.local.ThemePreference
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
 import com.hairconsultant.app.data.remote.firebase.ChatHistoryRemoteRepository
 import com.hairconsultant.app.data.remote.firebase.ConsultationRemoteRepository
@@ -81,6 +82,8 @@ class AppContainer(private val appContext: Context) {
      * google-services.json) before touching this, or FirebaseDatabase.getInstance() will throw.
      */
     val realtimeDatabase: FirebaseDatabase by lazy { FirebaseDatabase.getInstance() }
+
+    val themePreference: ThemePreference by lazy { ThemePreference(appContext) }
 
     // --- Gemini (image-upload AR try-on generation + the AI consultant chatbot's reasoning) ---
     val geminiImageRepository: GeminiImageRepository by lazy { GeminiImageRepositoryImpl(appContext) }

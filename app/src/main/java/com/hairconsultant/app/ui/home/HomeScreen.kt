@@ -1,14 +1,20 @@
 package com.hairconsultant.app.ui.home
 
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,6 +29,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -34,6 +42,9 @@ import com.hairconsultant.app.ui.chatbot.ChatBotSheet
 import com.hairconsultant.app.ui.chatbot.rememberChatBotSheetState
 import com.hairconsultant.app.ui.components.ChatFab
 import com.hairconsultant.app.ui.components.ClusterRow
+import com.hairconsultant.app.ui.components.FaceFitTiles
+import com.hairconsultant.app.ui.components.StatusBarScrim
+import com.hairconsultant.app.ui.theme.LocalShopColors
 import com.hairconsultant.app.ui.components.FilterDropdown
 import com.hairconsultant.app.ui.components.HaircutDetailDialog
 import com.hairconsultant.app.ui.deepar.DeepArCurtainsActivity
@@ -55,44 +66,43 @@ fun HomeScreen(viewModel: HomeViewModel) {
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 20.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                contentPadding = PaddingValues(bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(22.dp)
             ) {
-                item {
-                    Text(
-                        text = "Find your next haircut",
-                        style = MaterialTheme.typography.headlineMedium,
-                        modifier = Modifier.padding(horizontal = 20.dp)
-                    )
-                    Text(
-                        text = "Browse by length and texture, or ask the AI stylist",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 20.dp)
-                    )
-                }
+                item { HomeHeader(userFaceShape = uiState.userFaceShape) }
                 item {
                     CatalogFilterRow(
                         uiState = uiState,
                         onGenderSelected = viewModel::setGenderFilter,
                         onFaceShapeSelected = viewModel::setFaceShapeFilter,
                         onHairLengthSelected = viewModel::setHairLengthFilter,
-                        onHairTextureSelected = viewModel::setHairTextureFilter,
-                        modifier = Modifier.padding(horizontal = 20.dp)
+                        onHairTextureSelected = viewModel::setHairTextureFilter
                     )
+                }
+                if (uiState.clusters.isEmpty()) {
+                    item {
+                        Text(
+                            text = "No cuts match these filters. Set one back to All to see more.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                    }
                 }
                 items(uiState.clusters, key = { it.length.name + it.texture.name }) { cluster ->
                     ClusterRow(
                         cluster = cluster,
-                        onHaircutClick = viewModel::onHaircutSelected
+                        onHaircutClick = viewModel::onHaircutSelected,
+                        userFaceShape = uiState.userFaceShape
                     )
                 }
             }
         }
 
+        StatusBarScrim()
         ChatFab(
             onClick = { viewModel.chatBot.setOpen(true) },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
         )
     }
 
@@ -141,8 +151,49 @@ fun HomeScreen(viewModel: HomeViewModel) {
 }
 
 /**
+ * The shop-front header (black, grey in dark mode): signage, the tagline, and the face-shape legend for the fit tiles
+ * on every card, with the user's own shape ringed once a consultation has measured it.
+ */
+@Composable
+private fun HomeHeader(userFaceShape: FaceShape?) {
+    val shop = LocalShopColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(shop.shell)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 18.dp)
+    ) {
+        Text(
+            text = "HAIRCONSULTANT",
+            style = MaterialTheme.typography.headlineMedium,
+            color = shop.onShell,
+            modifier = Modifier.semantics { heading() }
+        )
+        Text(
+            text = "Find your next haircut",
+            style = MaterialTheme.typography.bodyMedium,
+            color = shop.onShellMuted
+        )
+        Row(
+            modifier = Modifier.padding(top = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = userFaceShape?.let { "Your face shape: ${it.displayName}" } ?: "Tiles show the face shapes each cut suits",
+                style = MaterialTheme.typography.bodySmall,
+                color = shop.onShell,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            FaceFitTiles(suits = listOfNotNull(userFaceShape), userShape = userFaceShape, onShell = true)
+        }
+    }
+}
+
+/**
  * Home defaults to the signed-in user's gender (masculine/unisex or feminine/unisex styles); these
- * four dropdowns let them look past that default at any other gender, face shape, hair type, or
+ * four filter chips let them look past that default at any other gender, face shape, hair type, or
  * hair length in the catalog.
  */
 @Composable
@@ -154,49 +205,41 @@ private fun CatalogFilterRow(
     onHairTextureSelected: (HairTexture?) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterDropdown(
-                label = "Gender",
-                selected = uiState.genderFilter,
-                options = listOf(Gender.MALE, Gender.FEMALE),
-                optionLabel = { genderFilterLabel(it) },
-                onSelected = onGenderSelected,
-                modifier = Modifier.weight(1f)
-            )
-            FilterDropdown(
-                label = "Face shape",
-                selected = uiState.faceShapeFilter,
-                options = FaceShape.entries,
-                optionLabel = { it.displayName },
-                onSelected = onFaceShapeSelected,
-                modifier = Modifier.weight(1f)
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterDropdown(
-                label = "Hair type",
-                selected = uiState.hairTextureFilter,
-                options = HairTexture.entries,
-                optionLabel = { it.displayName },
-                onSelected = onHairTextureSelected,
-                modifier = Modifier.weight(1f)
-            )
-            FilterDropdown(
-                label = "Hair length",
-                selected = uiState.hairLengthFilter,
-                options = HairLength.entries - HairLength.BALD,
-                optionLabel = { it.displayName },
-                onSelected = onHairLengthSelected,
-                modifier = Modifier.weight(1f)
-            )
-        }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        FilterDropdown(
+            label = "Gender",
+            selected = uiState.genderFilter,
+            options = listOf(Gender.MALE, Gender.FEMALE),
+            optionLabel = { genderFilterLabel(it) },
+            onSelected = onGenderSelected
+        )
+        FilterDropdown(
+            label = "Face shape",
+            selected = uiState.faceShapeFilter,
+            options = FaceShape.entries,
+            optionLabel = { it.displayName },
+            onSelected = onFaceShapeSelected
+        )
+        FilterDropdown(
+            label = "Hair type",
+            selected = uiState.hairTextureFilter,
+            options = HairTexture.entries,
+            optionLabel = { it.displayName },
+            onSelected = onHairTextureSelected
+        )
+        FilterDropdown(
+            label = "Length",
+            selected = uiState.hairLengthFilter,
+            options = HairLength.entries - HairLength.BALD,
+            optionLabel = { it.displayName },
+            onSelected = onHairLengthSelected
+        )
     }
 }
 

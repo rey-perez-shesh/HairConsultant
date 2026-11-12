@@ -153,8 +153,8 @@ private fun ChatBubble(
                 items(message.haircutOptions, key = { it.id }) { haircut ->
                     HaircutCard(
                         haircut = haircut,
-                        width = 120.dp,
-                        height = 150.dp,
+                        width = 136.dp,
+                        imageHeight = 96.dp,
                         onClick = onHaircutSelected
                     )
                 }

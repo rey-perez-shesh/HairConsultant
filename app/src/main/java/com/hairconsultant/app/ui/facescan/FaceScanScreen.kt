@@ -5,21 +5,30 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,18 +42,26 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import com.hairconsultant.app.data.analysis.FaceOverlayFrame
 import com.hairconsultant.app.ui.chatbot.ChatBotSheet
 import com.hairconsultant.app.ui.chatbot.rememberChatBotSheetState
-import com.hairconsultant.app.ui.components.ChatFab
+import com.hairconsultant.app.ui.components.ChatIconButton
+import com.hairconsultant.app.ui.components.OverlayButton
 import com.hairconsultant.app.ui.deepar.DeepArCurtainsActivity
+import com.hairconsultant.app.ui.theme.CameraScrim
+import com.hairconsultant.app.ui.theme.OnShell
+import com.hairconsultant.app.ui.theme.OnShellMuted
+import com.hairconsultant.app.ui.theme.WarnAmberDark
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -158,31 +175,49 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
             }
         }
 
-        if (uiState.triedOnHaircut != null && !HairstyleArCatalog.shouldUseDeepAr(uiState.triedOnHaircut!!)) {
-            FloatingActionButton(
-                onClick = viewModel::clearTryOn,
-                modifier = Modifier.align(Alignment.TopEnd).padding(20.dp)
-            ) { Icon(Icons.Filled.Close, contentDescription = "Stop trying on") }
-        }
-
+        val guide by viewModel.landmarkStore.overlay.collectAsState()
+        val scanning = cameraPermissionState.status.isGranted && uiState.stage == FaceScanStage.IDLE && !deepArCameraPaused
         val hasInitialAnalysis = uiState.stage != FaceScanStage.IDLE && uiState.stage != FaceScanStage.ANALYZING
-        if (hasInitialAnalysis && !deepArCameraPaused) {
-            ExtendedFloatingActionButton(
-                onClick = viewModel::rescan,
-                icon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
-                text = { Text("Rescan") },
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
-            )
+        val tryingOn = uiState.triedOnHaircut != null && !HairstyleArCatalog.shouldUseDeepAr(uiState.triedOnHaircut!!)
+
+        // Top bar over the camera: the scan guidance sign while scanning, otherwise the
+        // try-on / rescan controls; the chat opener sits at its end either way.
+        if (!deepArCameraPaused) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                when {
+                    scanning -> ScanGuideSign(guide = guide, modifier = Modifier.weight(1f))
+                    else -> Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (tryingOn) {
+                            OverlayButton(text = "Stop try-on", icon = Icons.Filled.Close, onClick = viewModel::clearTryOn)
+                        }
+                        if (hasInitialAnalysis) {
+                            OverlayButton(text = "Rescan", icon = Icons.Filled.Refresh, onClick = viewModel::rescan)
+                        }
+                    }
+                }
+                ChatIconButton(onClick = { viewModel.chatBot.setOpen(true) }, onScrim = true)
+            }
         }
 
         if (uiState.stage == FaceScanStage.ANALYZING) {
-            Box(
+            Column(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.5f), MaterialTheme.shapes.large)
-                    .padding(24.dp)
+                    .background(CameraScrim, MaterialTheme.shapes.large)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                CircularProgressIndicator(color = Color.White)
+                CircularProgressIndicator(color = OnShell)
+                Text("Hold still", style = MaterialTheme.typography.bodyMedium, color = OnShell)
             }
         }
 
@@ -190,7 +225,7 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(16.dp),
+                    .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (uiState.triedOnHaircut != null) {
@@ -207,39 +242,24 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
             }
         }
 
-        if (cameraPermissionState.status.isGranted && uiState.stage == FaceScanStage.IDLE && !deepArCameraPaused) {
+        if (scanning) {
             // Scanning is only allowed once the guide shows a face inside the oval, facing the camera; the guide's
             // own text says what to fix, so a disabled tap just does nothing.
-            val guide by viewModel.landmarkStore.overlay.collectAsState()
             val canScan = guide.faceDetected && guide.alignmentHint == null
-            FloatingActionButton(
+            ExtendedFloatingActionButton(
                 onClick = { if (canScan) viewModel.startScan() },
-                containerColor = if (canScan) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                },
-                contentColor = if (canScan) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                },
+                icon = { Icon(Icons.Filled.CameraAlt, contentDescription = null) },
+                text = { Text("Scan face") },
+                containerColor = if (canScan) MaterialTheme.colorScheme.primary else OnShell.copy(alpha = 0.10f),
+                contentColor = if (canScan) MaterialTheme.colorScheme.onPrimary else OnShell.copy(alpha = 0.45f),
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = if (canScan) 6.dp else 0.dp),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp)
-                    .semantics { if (!canScan) disabled() }
-            ) {
-                Icon(
-                    Icons.Filled.CameraAlt,
-                    contentDescription = if (canScan) "Scan face" else "Scan face — ${guide.alignmentHint ?: "line up your face with the oval first"}"
-                )
-            }
-        }
-
-        if (!deepArCameraPaused) {
-            ChatFab(
-                onClick = { viewModel.chatBot.setOpen(true) },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)
+                    .semantics {
+                        contentDescription = if (canScan) "Scan face" else "Scan face — ${guide.alignmentHint ?: "line up your face with the oval first"}"
+                        if (!canScan) disabled()
+                    }
             )
         }
     }
@@ -254,5 +274,43 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
             onHaircutSelected = viewModel::onHaircutTryOn,
             onQuickReplySelected = viewModel::onQuickReply
         )
+    }
+}
+
+/**
+ * The one instruction that matters right now, on a dark sign over the camera: amber while the
+ * face is off-centre or turned (the overlay oval goes broken amber too), solid white once it's locked in.
+ */
+@Composable
+private fun ScanGuideSign(guide: FaceOverlayFrame, modifier: Modifier = Modifier) {
+    val hint = guide.alignmentHint
+    val (title, subtitle, color) = when {
+        !guide.faceDetected -> Triple("Line up your face with the oval", "Hold the phone at eye level, in good light", OnShell)
+        hint != null -> Triple(hint, "Scan unlocks once you're lined up", WarnAmberDark)
+        else -> Triple("Face locked in", "Hold still, then tap Scan face", OnShell)
+    }
+    val icon = when {
+        !guide.faceDetected -> Icons.Filled.Face
+        hint != null -> Icons.Filled.PriorityHigh
+        else -> Icons.Filled.Check
+    }
+    Row(
+        modifier = modifier
+            .background(CameraScrim, MaterialTheme.shapes.large)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier.size(36.dp).border(2.dp, color, MaterialTheme.shapes.small),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+        }
+        Column {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = color)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = OnShellMuted)
+        }
     }
 }

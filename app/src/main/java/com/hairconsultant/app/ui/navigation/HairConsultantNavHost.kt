@@ -1,12 +1,19 @@
 package com.hairconsultant.app.ui.navigation
 
+import android.app.Activity
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -28,6 +35,7 @@ import com.hairconsultant.app.ui.home.HomeViewModel
 import com.hairconsultant.app.ui.imageupload.ImageUploadScreen
 import com.hairconsultant.app.ui.imageupload.ImageUploadViewModel
 import com.hairconsultant.app.ui.profile.ProfileScreen
+import com.hairconsultant.app.ui.theme.ImageWellDark
 import com.hairconsultant.app.ui.profile.ProfileViewModel
 
 @Composable
@@ -42,6 +50,8 @@ fun HairConsultantNavHost(container: AppContainer) {
         currentRoute !in Screen.fullScreenRoutes
 
     Scaffold(
+        // Camera screens stay dark in both themes, including the strip under the status bar.
+        containerColor = if (currentRoute in Screen.fullScreenRoutes) ImageWellDark else MaterialTheme.colorScheme.background,
         bottomBar = {
             if (showBottomBar) {
                 HairConsultantBottomBar(currentRoute = currentRoute) { route ->
@@ -54,10 +64,30 @@ fun HairConsultantNavHost(container: AppContainer) {
             }
         }
     ) { padding ->
+        // Tab screens draw their shell header under the status bar themselves; every other screen
+        // gets the full inset, consumed so nested insets padding doesn't add it a second time.
+        // Only the light auth screens want dark status-bar icons.
+        val view = LocalView.current
+        // Read from the applied theme, not the system flag: Profile's toggle can override the system.
+        val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+        val lightChrome = !darkTheme && currentRoute in listOf(Screen.Login.route, Screen.Register.route)
+        if (!view.isInEditMode) {
+            SideEffect {
+                val window = (view.context as Activity).window
+                WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = lightChrome
+                    isAppearanceLightNavigationBars = lightChrome
+                }
+            }
+        }
         NavHost(
             navController = navController,
             startDestination = startDestination,
-            modifier = Modifier.padding(padding)
+            modifier = if (showBottomBar) {
+                Modifier.padding(bottom = padding.calculateBottomPadding())
+            } else {
+                Modifier.padding(padding).consumeWindowInsets(padding)
+            }
         ) {
             composable(Screen.Login.route) {
                 val viewModel: LoginViewModel = viewModel(factory = ViewModelFactory(container) { c ->
@@ -90,7 +120,8 @@ fun HairConsultantNavHost(container: AppContainer) {
                         c.geminiChatRepository,
                         c.chatBotController,
                         c.authRepository,
-                        c.userRepository
+                        c.userRepository,
+                        c.consultationRepository
                     )
                 })
                 LaunchedEffect(Unit) { viewModel.activateChat() }
@@ -135,6 +166,8 @@ fun HairConsultantNavHost(container: AppContainer) {
                 })
                 ProfileScreen(
                     viewModel = viewModel,
+                    isDarkTheme = darkTheme,
+                    onToggleTheme = { container.themePreference.setDarkMode(!darkTheme) },
                     onLoggedOut = { navController.navigate(Screen.Login.route) { popUpTo(0) } },
                     onDeepArCurtainsTest = {
                         navController.navigate(Screen.DeepArCurtainsTest.route)

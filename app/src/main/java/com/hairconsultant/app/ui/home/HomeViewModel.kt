@@ -6,6 +6,7 @@ import com.hairconsultant.app.data.remote.firebase.AuthRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.data.remote.gemini.describeForChatContext
 import com.hairconsultant.app.data.remote.gemini.haircutsNamedIn
+import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.HaircutRepository
 import com.hairconsultant.app.data.repository.UserRepository
 import com.hairconsultant.app.domain.model.FaceShape
@@ -39,7 +40,9 @@ data class HomeUiState(
     val genderFilterChosen: Boolean = false,
     val faceShapeFilter: FaceShape? = null,
     val hairLengthFilter: HairLength? = null,
-    val hairTextureFilter: HairTexture? = null
+    val hairTextureFilter: HairTexture? = null,
+    /** Face shape from the user's latest consultation, ringed on each card's fit tiles; null before any scan. */
+    val userFaceShape: FaceShape? = null
 )
 
 class HomeViewModel(
@@ -47,7 +50,8 @@ class HomeViewModel(
     private val chatRepository: GeminiChatRepository,
     val chatBot: ChatBotController,
     private val authRepository: AuthRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val consultationRepository: ConsultationRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -79,6 +83,13 @@ class HomeViewModel(
             // The profile loads asynchronously; if the user already picked a gender filter
             // (including "All") in the meantime, their choice wins over the profile default.
             updateFilters { if (it.genderFilterChosen) it else it.copy(genderFilter = gender) }
+        }
+        viewModelScope.launch {
+            val uid = authRepository.currentUser.value?.uid ?: return@launch
+            // History is newest first, so its head is the latest confirmed scan.
+            consultationRepository.observeHistory(uid).collect { history ->
+                _uiState.update { it.copy(userFaceShape = history.firstOrNull()?.scanResult?.faceShape) }
+            }
         }
     }
 

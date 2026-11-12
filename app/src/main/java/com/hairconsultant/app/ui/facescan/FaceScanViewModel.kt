@@ -90,7 +90,7 @@ class FaceScanViewModel(
         val guide = landmarkStore.overlay.value
         return when {
             !guide.faceDetected -> "I can't see your face yet — line it up with the outline, then tap Scan."
-            guide.alignmentHint != null -> "${guide.alignmentHint}, then tap Scan. The outline turns green when you're lined up."
+            guide.alignmentHint != null -> "${guide.alignmentHint}, then tap Scan. The outline turns solid when you're lined up."
             else -> null
         }
     }

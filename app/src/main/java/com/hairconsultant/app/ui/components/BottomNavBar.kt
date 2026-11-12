@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.style.TextOverflow
 import com.hairconsultant.app.ui.navigation.bottomNavItems
+import com.hairconsultant.app.ui.theme.LocalShopColors
 
 /**
  * No fixed height: NavigationBar sizes itself and adds the system navigation-bar inset (gesture
@@ -26,7 +27,8 @@ fun HairConsultantBottomBar(
 ) {
     val density = LocalDensity.current
     val labelDensity = Density(density.density, density.fontScale.coerceAtMost(MAX_LABEL_FONT_SCALE))
-    NavigationBar {
+    val shop = LocalShopColors.current
+    NavigationBar(containerColor = shop.shell, contentColor = shop.onShell) {
         bottomNavItems.forEach { item ->
             val selected = currentRoute == item.screen.route
             NavigationBarItem(
@@ -39,7 +41,13 @@ fun HairConsultantBottomBar(
                         Text(item.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 },
-                colors = NavigationBarItemDefaults.colors()
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = shop.onShell,
+                    selectedTextColor = shop.onShell,
+                    indicatorColor = shop.indicator,
+                    unselectedIconColor = shop.onShellMuted,
+                    unselectedTextColor = shop.onShellMuted
+                )
             )
         }
     }
