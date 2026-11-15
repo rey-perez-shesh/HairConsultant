@@ -27,7 +27,6 @@ import com.hairconsultant.app.ui.auth.LoginViewModel
 import com.hairconsultant.app.ui.auth.RegisterScreen
 import com.hairconsultant.app.ui.auth.RegisterViewModel
 import com.hairconsultant.app.ui.components.HairConsultantBottomBar
-import com.hairconsultant.app.ui.deepar.DeepArCurtainsTestScreen
 import com.hairconsultant.app.ui.facescan.FaceScanScreen
 import com.hairconsultant.app.ui.facescan.FaceScanViewModel
 import com.hairconsultant.app.ui.home.HomeScreen
@@ -168,16 +167,7 @@ fun HairConsultantNavHost(container: AppContainer) {
                     viewModel = viewModel,
                     isDarkTheme = darkTheme,
                     onToggleTheme = { container.themePreference.setDarkMode(!darkTheme) },
-                    onLoggedOut = { navController.navigate(Screen.Login.route) { popUpTo(0) } },
-                    onDeepArCurtainsTest = {
-                        navController.navigate(Screen.DeepArCurtainsTest.route)
-                    }
-                )
-            }
-            // Isolated DeepAR test — not wired into SceneView / MediaPipe try-on.
-            composable(Screen.DeepArCurtainsTest.route) {
-                DeepArCurtainsTestScreen(
-                    onClose = { navController.popBackStack() }
+                    onLoggedOut = { navController.navigate(Screen.Login.route) { popUpTo(0) } }
                 )
             }
         }

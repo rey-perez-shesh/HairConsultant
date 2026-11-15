@@ -11,3 +11,8 @@
 # shaggy_wolfcut.deepar            → Shaggy Wolfcut
 # layered_curly_shag.deepar       → Layered Curly Shag
 # curtain_bangs_wavy_lob.deepar    → Curtain Bangs Wavy Lob
+# modern_pompadour.deepar          → Modern Pompadour
+# beachy_wavy_shag.deepar          → Beachy Wavy Shag
+# wavy_lob_with_side_part.deepar   → Wavy Lob with Side Part
+# textured_side_part.deepar        → Textured Side Part
+# curtains_with_layer.deepar       → Curtains with Layer

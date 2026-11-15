@@ -26,7 +26,6 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
@@ -83,8 +82,7 @@ fun ProfileScreen(
     viewModel: ProfileViewModel,
     onLoggedOut: () -> Unit,
     isDarkTheme: Boolean,
-    onToggleTheme: () -> Unit,
-    onDeepArCurtainsTest: () -> Unit = {}
+    onToggleTheme: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -103,7 +101,6 @@ fun ProfileScreen(
                     onTabSelected = viewModel::onTabSelected,
                     isDarkTheme = isDarkTheme,
                     onToggleTheme = onToggleTheme,
-                    onDeepArCurtainsTest = onDeepArCurtainsTest,
                     onClearHistory = viewModel::clearHistory,
                     onClearFavorites = viewModel::clearFavorites,
                     onLogout = {
@@ -149,7 +146,6 @@ private fun ProfileHeader(
     onTabSelected: (ProfileTab) -> Unit,
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit,
-    onDeepArCurtainsTest: () -> Unit,
     onClearHistory: () -> Unit,
     onClearFavorites: () -> Unit,
     onLogout: () -> Unit
@@ -209,14 +205,6 @@ private fun ProfileHeader(
                     Icon(Icons.Filled.MoreVert, contentDescription = "Settings", tint = shop.onShell)
                 }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text("DeepAR curtains test") },
-                        leadingIcon = { Icon(Icons.Filled.Face, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onDeepArCurtainsTest()
-                        }
-                    )
                     DropdownMenuItem(
                         text = { Text("Clear history") },
                         leadingIcon = { Icon(Icons.Filled.DeleteSweep, contentDescription = null) },

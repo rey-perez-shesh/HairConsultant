@@ -43,7 +43,12 @@ object HairstyleArCatalog {
         "textured crop medium length" to "effects/textured_crop_medium_length.deepar",
         "shaggy wolfcut" to "effects/shaggy_wolfcut.deepar",
         "layered curly shag" to "effects/layered_curly_shag.deepar",
-        "curtain bangs wavy lob" to "effects/curtain_bangs_wavy_lob.deepar"
+        "curtain bangs wavy lob" to "effects/curtain_bangs_wavy_lob.deepar",
+        "modern pompadour" to "effects/modern_pompadour.deepar",
+        "beachy wavy shag" to "effects/beachy_wavy_shag.deepar",
+        "wavy lob with side part" to "effects/wavy_lob_with_side_part.deepar",
+        "textured side part" to "effects/textured_side_part.deepar",
+        "curtains with layer" to "effects/curtains_with_layer.deepar"
     )
 
     /** Catalog id → DeepAR asset (backup when name lookup misses). */
@@ -57,7 +62,12 @@ object HairstyleArCatalog {
         "MEDIUM_STRAIGHT_6" to "effects/textured_crop_medium_length.deepar",
         ID_SHAGGY_WOLFCUT to "effects/shaggy_wolfcut.deepar",
         "MEDIUM_CURLY_1" to "effects/layered_curly_shag.deepar",
-        "MEDIUM_WAVY_0" to "effects/curtain_bangs_wavy_lob.deepar"
+        "MEDIUM_WAVY_0" to "effects/curtain_bangs_wavy_lob.deepar",
+        ID_MODERN_POMPADOUR to "effects/modern_pompadour.deepar",
+        "MEDIUM_WAVY_3" to "effects/beachy_wavy_shag.deepar",
+        "MEDIUM_WAVY_2" to "effects/wavy_lob_with_side_part.deepar",
+        "MEDIUM_WAVY_5" to "effects/textured_side_part.deepar",
+        "MEDIUM_WAVY_8" to "effects/curtains_with_layer.deepar"
     )
 
     data class AssetConfig(
