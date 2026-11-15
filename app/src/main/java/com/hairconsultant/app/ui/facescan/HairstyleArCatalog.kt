@@ -5,7 +5,6 @@ import com.hairconsultant.app.data.SampleData
 import com.hairconsultant.app.data.remote.ArAssetCache
 import com.hairconsultant.app.domain.model.ArType
 import com.hairconsultant.app.domain.model.Haircut
-import com.hairconsultant.app.ui.deepar.DeepArCurtainsSession
 
 /**
  * Extensible haircut-id → GLB / temporary 2D PNG mapping for AR try-on.
@@ -19,8 +18,8 @@ import com.hairconsultant.app.ui.deepar.DeepArCurtainsSession
 object HairstyleArCatalog {
 
     /**
-     * When true, catalog styles with a mapped `.deepar` asset open DeepAR try-on
-     * instead of SceneView GLB / PNG overlay.
+     * When true, styles with a dashboard-uploaded `.deepar` (`arType` / `arAssetUrl`) open
+     * DeepAR try-on instead of SceneView GLB / PNG overlay.
      *
      * **Revert:** set to `false` and rebuild — those styles fall back to GLB/PNG.
      */
@@ -28,47 +27,6 @@ object HairstyleArCatalog {
 
     /** @deprecated Use [USE_DEEPAR_TRY_ON]. Kept so older call sites/comments still compile. */
     const val USE_DEEPAR_FOR_CURTAINS: Boolean = USE_DEEPAR_TRY_ON
-
-    /**
-     * Catalog display name (lowercase) → asset under `assets/effects/`.
-     * Names must match [SampleData] haircut titles.
-     */
-    private val deeparByName: Map<String, String> = mapOf(
-        "curtains" to "effects/curtains.deepar",
-        "wavy fringe crop" to "effects/wavy_fringe_crop.deepar",
-        "face framing layered cut" to "effects/face_framing_layered_cut.deepar",
-        "french crop" to "effects/french_crop.deepar",
-        "classic blunt bob" to "effects/blunt_bob.deepar",
-        "curly quiff" to "effects/curly_quiff.deepar",
-        "textured crop medium length" to "effects/textured_crop_medium_length.deepar",
-        "shaggy wolfcut" to "effects/shaggy_wolfcut.deepar",
-        "layered curly shag" to "effects/layered_curly_shag.deepar",
-        "curtain bangs wavy lob" to "effects/curtain_bangs_wavy_lob.deepar",
-        "modern pompadour" to "effects/modern_pompadour.deepar",
-        "beachy wavy shag" to "effects/beachy_wavy_shag.deepar",
-        "wavy lob with side part" to "effects/wavy_lob_with_side_part.deepar",
-        "textured side part" to "effects/textured_side_part.deepar",
-        "curtains with layer" to "effects/curtains_with_layer.deepar"
-    )
-
-    /** Catalog id → DeepAR asset (backup when name lookup misses). */
-    private val deeparById: Map<String, String> = mapOf(
-        ID_CURTAINS to "effects/curtains.deepar",
-        "SHORT_WAVY_4" to "effects/wavy_fringe_crop.deepar",
-        "MEDIUM_STRAIGHT_4" to "effects/face_framing_layered_cut.deepar",
-        ID_FRENCH_CROP to "effects/french_crop.deepar",
-        "SHORT_STRAIGHT_6" to "effects/blunt_bob.deepar",
-        "MEDIUM_CURLY_5" to "effects/curly_quiff.deepar",
-        "MEDIUM_STRAIGHT_6" to "effects/textured_crop_medium_length.deepar",
-        ID_SHAGGY_WOLFCUT to "effects/shaggy_wolfcut.deepar",
-        "MEDIUM_CURLY_1" to "effects/layered_curly_shag.deepar",
-        "MEDIUM_WAVY_0" to "effects/curtain_bangs_wavy_lob.deepar",
-        ID_MODERN_POMPADOUR to "effects/modern_pompadour.deepar",
-        "MEDIUM_WAVY_3" to "effects/beachy_wavy_shag.deepar",
-        "MEDIUM_WAVY_2" to "effects/wavy_lob_with_side_part.deepar",
-        "MEDIUM_WAVY_5" to "effects/textured_side_part.deepar",
-        "MEDIUM_WAVY_8" to "effects/curtains_with_layer.deepar"
-    )
 
     data class AssetConfig(
         val modelAsset: String,
@@ -238,13 +196,10 @@ object HairstyleArCatalog {
     )
 
     /**
-     * The dashboard-uploaded asset type for [haircut], or null when the style uses the bundled
-     * mapping below ([ArType.AUTO], or an explicit type that has no uploaded file yet).
+     * The dashboard-uploaded asset type for [haircut], or null when there is no remote AR file
+     * ([ArType.NONE], missing URL, or [ArType.AUTO] with a non-AR URL).
      */
-    fun remoteArType(haircut: Haircut): ArType? = when (haircut.arType) {
-        ArType.DEEPAR, ArType.GLB -> haircut.arType.takeIf { haircut.arAssetUrl != null }
-        ArType.AUTO, ArType.NONE -> null
-    }
+    fun remoteArType(haircut: Haircut): ArType? = ArAssetCache.resolvedArType(haircut)
 
     private fun isTryOnDisabled(haircut: Haircut): Boolean = haircut.arType == ArType.NONE
 
@@ -252,15 +207,13 @@ object HairstyleArCatalog {
     fun isRemoteGlb(haircut: Haircut): Boolean = remoteArType(haircut) == ArType.GLB
 
     /**
-     * DeepAR effect to launch for [haircut]: a downloaded dashboard upload (absolute file path) or
-     * a bundled `assets/` path. Null only when a dashboard upload couldn't be downloaded.
+     * DeepAR effect to launch for [haircut]: downloads the admin dashboard upload to a local file.
+     * Null when this style isn't dashboard DeepAR or the download failed.
      */
-    suspend fun resolveDeepArEffect(context: Context, haircut: Haircut): String? =
-        if (remoteArType(haircut) == ArType.DEEPAR) {
-            ArAssetCache.localFile(context, haircut)?.absolutePath
-        } else {
-            deepArEffectPath(haircut) ?: DeepArCurtainsSession.DEFAULT_EFFECT_ASSET_PATH
-        }
+    suspend fun resolveDeepArEffect(context: Context, haircut: Haircut): String? {
+        if (remoteArType(haircut) != ArType.DEEPAR) return null
+        return ArAssetCache.localFile(context, haircut)?.absolutePath
+    }
 
     /** True when this card should open the real SceneView GLB AR try-on (not 2D photo-swap). */
     fun hasDedicatedGlb(haircut: Haircut): Boolean {
@@ -279,20 +232,20 @@ object HairstyleArCatalog {
         return haircut.id == ID_CURTAINS || nameKey == "curtains"
     }
 
-    /** Asset path under `assets/` for DeepAR, or null if this style has no effect. */
-    fun deepArEffectPath(haircut: Haircut): String? {
-        val nameKey = haircut.name.trim().lowercase()
-        deeparByName[nameKey]?.let { return it }
-        return deeparById[haircut.id]
-    }
+    /**
+     * @deprecated DeepAR effects are no longer bundled in the APK; use [resolveDeepArEffect]
+     * for dashboard uploads. Always returns null.
+     */
+    @Deprecated("DeepAR comes from the admin dashboard via arAssetUrl", ReplaceWith("null"))
+    fun deepArEffectPath(haircut: Haircut): String? = null
 
     /**
-     * Live DeepAR try-on when [USE_DEEPAR_TRY_ON] is on and this haircut has a mapped `.deepar`.
+     * Live DeepAR try-on when [USE_DEEPAR_TRY_ON] is on and the admin uploaded a `.deepar` for
+     * this haircut ([Haircut.arType] / [Haircut.arAssetUrl]).
      */
     fun shouldUseDeepAr(haircut: Haircut): Boolean {
         if (!USE_DEEPAR_TRY_ON || isTryOnDisabled(haircut)) return false
-        remoteArType(haircut)?.let { return it == ArType.DEEPAR }
-        return deepArEffectPath(haircut) != null
+        return remoteArType(haircut) == ArType.DEEPAR
     }
 
     /** @deprecated Prefer [shouldUseDeepAr]. */

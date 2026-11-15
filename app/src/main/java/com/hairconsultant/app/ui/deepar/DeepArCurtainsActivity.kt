@@ -39,10 +39,13 @@ class DeepArCurtainsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        effectAssetPath = intent.getStringExtra(EXTRA_EFFECT_ASSET)
-            ?: DeepArCurtainsSession.DEFAULT_EFFECT_ASSET_PATH
+        effectAssetPath = intent.getStringExtra(EXTRA_EFFECT_ASSET).orEmpty()
         displayName = intent.getStringExtra(EXTRA_DISPLAY_NAME)
-            ?: effectAssetPath.substringAfterLast('/').removeSuffix(".deepar")
+            ?: effectAssetPath.substringAfterLast('/').removeSuffix(".deepar").ifBlank { "DeepAR" }
+        if (effectAssetPath.isBlank()) {
+            finish()
+            return
+        }
 
         val density = resources.displayMetrics.density
         val pad = (16 * density).toInt()

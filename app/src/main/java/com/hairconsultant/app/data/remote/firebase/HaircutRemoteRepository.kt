@@ -72,9 +72,12 @@ private fun DocumentSnapshot.toHaircutOrNull(): Haircut? {
             .getOrDefault(TreatmentPreference.NONE),
         description = getString("description").orEmpty(),
         sortOrder = getLong("sortOrder")?.toInt() ?: 0,
-        arType = runCatching { ArType.valueOf(getString("arType").orEmpty()) }.getOrDefault(ArType.AUTO),
-        arAssetUrl = getString("arAssetUrl")?.takeIf { it.isNotBlank() },
-        arAssetVersion = getLong("arAssetVersion")?.toInt() ?: 0,
+        arType = runCatching {
+            ArType.valueOf(getString("arType").orEmpty().trim().uppercase())
+        }.getOrDefault(ArType.AUTO),
+        arAssetUrl = getString("arAssetUrl")?.takeIf { it.isNotBlank() }
+            ?: getString("arAssetURL")?.takeIf { it.isNotBlank() },
+        arAssetVersion = (getLong("arAssetVersion") ?: getLong("arAssetVer"))?.toInt() ?: 0,
         glbFit = GlbFit(
             scaleMul = fitValue("scaleMul", defaults.scaleMul),
             offsetX = fitValue("offsetX", defaults.offsetX),

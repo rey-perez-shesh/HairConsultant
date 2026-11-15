@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class DeepArCurtainsSession(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
-    /** Path under `assets/` e.g. `effects/curtains.deepar`. */
+    /** Absolute path from ArAssetCache, or legacy `assets/` path. */
     private val effectAssetPath: String,
     private val displayName: String = effectAssetPath.substringAfterLast('/'),
     private val onStatus: (String) -> Unit = {},
@@ -308,13 +308,18 @@ class DeepArCurtainsSession(
         return rotation == Surface.ROTATION_0 || rotation == Surface.ROTATION_180
     }
 
-    /** Dashboard-uploaded effects arrive as absolute paths into ArAssetCache, not `assets/` paths. */
+    /** Dashboard-uploaded effects arrive as absolute / file:// paths from ArAssetCache. */
     private val isDownloadedEffect: Boolean
-        get() = effectAssetPath.startsWith("/")
+        get() {
+            val path = effectAssetPath.removePrefix("file://")
+            return effectAssetPath.startsWith("file://") ||
+                effectAssetPath.startsWith("/") ||
+                File(path).isAbsolute
+        }
 
     private fun effectAssetExists(): Boolean =
         if (isDownloadedEffect) {
-            File(effectAssetPath).isFile
+            File(effectAssetPath.removePrefix("file://")).isFile
         } else {
             runCatching {
                 context.assets.open(effectAssetPath).use { true }
@@ -322,7 +327,11 @@ class DeepArCurtainsSession(
         }
 
     private val effectUri: String
-        get() = if (isDownloadedEffect) effectAssetPath else "file:///android_asset/$effectAssetPath"
+        get() = when {
+            effectAssetPath.startsWith("file://") -> effectAssetPath
+            isDownloadedEffect -> effectAssetPath
+            else -> "file:///android_asset/$effectAssetPath"
+        }
 
     private fun Context.findActivity(): Activity? {
         var ctx: Context? = this
@@ -336,6 +345,5 @@ class DeepArCurtainsSession(
     companion object {
         private const val TAG = "DeepArCurtains"
         private const val BUFFER_COUNT = 2
-        const val DEFAULT_EFFECT_ASSET_PATH = "effects/curtains.deepar"
     }
 }

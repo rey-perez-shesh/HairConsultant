@@ -34,7 +34,8 @@ object ArAssetCache {
     /** Local file for [haircut]'s remote asset, downloading it first if needed; null on failure. */
     suspend fun localFile(context: Context, haircut: Haircut): File? {
         val url = haircut.arAssetUrl ?: return null
-        val extension = when (haircut.arType) {
+        val resolvedType = resolvedArType(haircut) ?: return null
+        val extension = when (resolvedType) {
             ArType.DEEPAR -> "deepar"
             ArType.GLB -> "glb"
             ArType.AUTO, ArType.NONE -> return null
@@ -63,6 +64,28 @@ object ArAssetCache {
                     Log.w(TAG, "Couldn't download AR asset for ${haircut.id}", it)
                 }.getOrNull()
             }
+        }
+    }
+
+    /**
+     * Dashboard [Haircut.arType], or inferred from [Haircut.arAssetUrl] when the admin left
+     * [ArType.AUTO] but uploaded a `.deepar` / `.glb`.
+     */
+    fun resolvedArType(haircut: Haircut): ArType? {
+        val url = haircut.arAssetUrl?.takeIf { it.isNotBlank() } ?: return null
+        return when (haircut.arType) {
+            ArType.DEEPAR, ArType.GLB -> haircut.arType
+            ArType.NONE -> null
+            ArType.AUTO -> inferTypeFromUrl(url)
+        }
+    }
+
+    fun inferTypeFromUrl(url: String): ArType? {
+        val path = url.substringBefore('?').substringBefore('#').lowercase()
+        return when {
+            path.endsWith(".deepar") -> ArType.DEEPAR
+            path.endsWith(".glb") -> ArType.GLB
+            else -> null
         }
     }
 }

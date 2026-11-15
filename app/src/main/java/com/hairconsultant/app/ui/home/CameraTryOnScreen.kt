@@ -44,7 +44,7 @@ import com.hairconsultant.app.data.analysis.FaceLandmarkStore
 /**
  * Live camera try-on launched from a Home catalog card.
  *
- * - Styles with a mapped `.deepar` launch [DeepArCurtainsActivity] when
+ * - Styles with a dashboard-uploaded `.deepar` launch DeepAR when
  *   [HairstyleArCatalog.USE_DEEPAR_TRY_ON] is true.
  * - Cards with a dedicated GLB use SceneView (unchanged).
  * - Other cards use temporary 2D PNG or hair-swap preview.

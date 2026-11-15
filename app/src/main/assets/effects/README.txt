@@ -1,18 +1,10 @@
-# DeepAR hairstyle effects (catalog try-on).
-# Mapped in HairstyleArCatalog.deeparByName / deeparById.
+# DeepAR hairstyle effects — admin dashboard only.
 #
-# curtains.deepar                  → Curtains
-# wavy_fringe_crop.deepar          → Wavy Fringe Crop
-# face_framing_layered_cut.deepar  → Face Framing Layered Cut
-# french_crop.deepar               → French Crop
-# blunt_bob.deepar                 → Classic Blunt Bob
-# curly_quiff.deepar               → Curly Quiff
-# textured_crop_medium_length.deepar → Textured Crop Medium Length
-# shaggy_wolfcut.deepar            → Shaggy Wolfcut
-# layered_curly_shag.deepar       → Layered Curly Shag
-# curtain_bangs_wavy_lob.deepar    → Curtain Bangs Wavy Lob
-# modern_pompadour.deepar          → Modern Pompadour
-# beachy_wavy_shag.deepar          → Beachy Wavy Shag
-# wavy_lob_with_side_part.deepar   → Wavy Lob with Side Part
-# textured_side_part.deepar        → Textured Side Part
-# curtains_with_layer.deepar       → Curtains with Layer
+# Try-on no longer maps these APK files in Kotlin. Upload a `.deepar` in the
+# hairconsultant-admin dashboard for each haircut and set:
+#   arType = DEEPAR   (or AUTO with a URL ending in .deepar)
+#   arAssetUrl = Firebase Storage download URL
+#   arAssetVersion = bump on every re-upload
+#
+# The app downloads the file via ArAssetCache and opens DeepAR try-on.
+# Files left under this folder are unused leftovers from older APK-bundled try-on.

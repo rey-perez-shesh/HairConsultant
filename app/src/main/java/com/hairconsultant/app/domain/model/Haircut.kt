@@ -16,7 +16,11 @@ data class Haircut(
     val treatment: TreatmentPreference = TreatmentPreference.NONE,
     val description: String = "",
     val sortOrder: Int = 0,
-    /** How this style is tried on; [ArType.AUTO] keeps the APK-bundled mapping in HairstyleArCatalog. */
+    /**
+     * How this style is tried on. Set from the admin dashboard:
+     * [ArType.DEEPAR] / [ArType.GLB] with [arAssetUrl], or [ArType.AUTO] to infer from the URL
+     * (`.deepar` / `.glb`) or fall back to APK-bundled GLB/PNG try-on (not DeepAR).
+     */
     val arType: ArType = ArType.AUTO,
     /** Firebase Storage download URL of a dashboard-uploaded `.deepar` / `.glb` asset. */
     val arAssetUrl: String? = null,
@@ -28,7 +32,10 @@ data class Haircut(
 
 /** Try-on source chosen per style in the admin dashboard. */
 enum class ArType {
-    /** Use whatever HairstyleArCatalog maps from the APK's bundled assets (or none). */
+    /**
+     * Infer from [Haircut.arAssetUrl] when present (`.deepar` → DeepAR, `.glb` → GLB);
+     * otherwise use APK-bundled GLB/PNG try-on — DeepAR only comes from the dashboard.
+     */
     AUTO,
     DEEPAR,
     GLB,
