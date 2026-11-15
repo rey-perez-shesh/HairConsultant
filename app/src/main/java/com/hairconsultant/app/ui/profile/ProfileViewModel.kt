@@ -11,6 +11,7 @@ import com.hairconsultant.app.domain.model.User
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -86,6 +87,15 @@ class ProfileViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ProfileUiState())
 
+    init {
+        // Saved looks follow the account: pull in any saved on another install of the app.
+        viewModelScope.launch {
+            authRepository.currentUser.collectLatest { user ->
+                user?.let { consultationRepository.restoreSavedLooks(it.uid) }
+            }
+        }
+    }
+
     fun onTabSelected(tab: ProfileTab) = _selectedTab.update { tab }
     fun onRatingChanged(rating: Int) = _rating.update { rating }
     fun onFeedbackCommentChanged(text: String) = _feedbackComment.update { text }
@@ -93,7 +103,11 @@ class ProfileViewModel(
 
     fun toggleFavorite(consultation: Consultation) {
         viewModelScope.launch {
-            consultationRepository.setFavorite(consultation.id, !consultation.isFavorite)
+            if (consultation.isSavedLook) {
+                consultationRepository.removeSavedLook(consultation.id)
+            } else {
+                consultationRepository.setFavorite(consultation.id, !consultation.isFavorite)
+            }
         }
     }
 

@@ -9,6 +9,7 @@ import com.hairconsultant.app.data.remote.firebase.AuthRepository
 import com.hairconsultant.app.data.recommendation.HairstyleRecommender
 import com.hairconsultant.app.data.remote.gemini.ExtractedPreferences
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
+import com.hairconsultant.app.data.remote.gemini.asksToSeeHairstyles
 import com.hairconsultant.app.data.remote.gemini.describeForChatContext
 import com.hairconsultant.app.data.remote.gemini.haircutsNamedIn
 import com.hairconsultant.app.data.repository.ConsultationRepository
@@ -145,12 +146,13 @@ class FaceScanViewModel(
 
     /**
      * The consultation loop: the user talks freely with the AI consultant for as long as they
-     * like, and every tap of [CONFIRM_LABEL] runs [showHairstyles]. Anything said after
+     * like, and every tap of [CONFIRM_LABEL], or typed request to see hairstyles
+     * ([asksToSeeHairstyles]), runs [showHairstyles]. Anything else said after
      * suggestions are shown reopens the consultation, so new or changed parameters get a fresh
      * round of thinking the next time [CONFIRM_LABEL] is tapped.
      */
     private suspend fun onConsultingReply(text: String) {
-        if (text.equals(CONFIRM_LABEL, ignoreCase = true)) {
+        if (asksToSeeHairstyles(text)) {
             showHairstyles()
         } else {
             _uiState.update { it.copy(stage = FaceScanStage.CONSULTING) }
@@ -176,6 +178,8 @@ class FaceScanViewModel(
         chatRepository.reply(conversation.recentMessages, text, context, conversation.summary)
             .onSuccess { reply ->
                 val pictures = if (consulting) emptyList() else haircutsNamedIn(reply, catalog)
+                // The strip always offers the same styles as the latest pictures in the chat.
+                if (pictures.isNotEmpty()) _uiState.update { it.copy(suggestions = pictures) }
                 chatBot.pushBotMessage(reply, haircutOptions = pictures, quickReplies = quickReplies)
             }
             .onFailure { error ->
@@ -201,8 +205,8 @@ class FaceScanViewModel(
             if (scan != null) {
                 append(
                     "\nNo hairstyle pictures are shown with your replies; the user sees their top matches as " +
-                        "pictures when they tap \"$CONFIRM_LABEL\". If they add or change preferences, you can " +
-                        "mention that tapping it will update their picks."
+                        "pictures when they tap \"$CONFIRM_LABEL\" or ask to see their hairstyles. If they add or change " +
+                        "preferences, you can mention that doing so again will update their picks."
                 )
                 val closest = recommender.shortlist(scan, currentParameters(), gender, CLOSEST_MATCHES_HINT)
                 append(
@@ -233,7 +237,7 @@ class FaceScanViewModel(
                     quickReplies = fixMenuQuickReplies(includeTexture = _uiState.value.scanResult?.hairLength != HairLength.BALD)
                 )
             }
-            text.equals(CONFIRM_LABEL, ignoreCase = true) -> {
+            asksToSeeHairstyles(text) -> {
                 enterConsulting()
                 showHairstyles()
             }

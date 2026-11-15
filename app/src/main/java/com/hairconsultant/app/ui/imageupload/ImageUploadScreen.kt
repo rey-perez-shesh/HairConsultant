@@ -23,6 +23,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -63,6 +65,7 @@ import kotlinx.coroutines.launch
 fun ImageUploadScreen(viewModel: ImageUploadViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val chatState by viewModel.chatState.collectAsState()
+    val lookSaved by viewModel.isLookSaved.collectAsState()
     val sheetState = rememberChatBotSheetState()
     val scope = rememberCoroutineScope()
 
@@ -88,7 +91,9 @@ fun ImageUploadScreen(viewModel: ImageUploadViewModel) {
                 model = displayUri,
                 contentDescription = "Uploaded photo",
                 modifier = Modifier.fillMaxSize().background(LocalShopColors.current.imageWell),
-                contentScale = ContentScale.Crop
+                // Fit, not Crop: on a tall screen Crop zooms into the face and cuts the hair off,
+                // which is the one thing this screen is for.
+                contentScale = ContentScale.Fit
             )
 
             if (uiState.isGenerating) {
@@ -128,13 +133,31 @@ fun ImageUploadScreen(viewModel: ImageUploadViewModel) {
                 ChatIconButton(onClick = openChat, onScrim = true)
             }
 
-            if (uiState.suggestions.isNotEmpty()) {
-                TryOnStrip(
-                    suggestions = uiState.suggestions,
-                    selectedHaircut = uiState.selectedHaircut,
-                    onSelect = viewModel::onHaircutSelected,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)
-                )
+            Column(
+                modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Only for a generated preview: there's nothing of the user's own to keep before one.
+                if (uiState.lookId != null) {
+                    Row(
+                        modifier = Modifier.align(Alignment.End),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OverlayButton(text = "Try again", icon = Icons.Filled.Refresh, onClick = viewModel::regeneratePreview)
+                        OverlayButton(
+                            text = if (lookSaved) "Saved to Favorites" else "Save look",
+                            icon = if (lookSaved) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            onClick = viewModel::toggleSaveLook
+                        )
+                    }
+                }
+                if (uiState.suggestions.isNotEmpty()) {
+                    TryOnStrip(
+                        suggestions = uiState.suggestions,
+                        selectedHaircut = uiState.selectedHaircut,
+                        onSelect = viewModel::onHaircutSelected
+                    )
+                }
             }
         }
     }

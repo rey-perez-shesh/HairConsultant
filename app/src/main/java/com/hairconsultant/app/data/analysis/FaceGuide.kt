@@ -52,8 +52,41 @@ object FaceGuide {
             val dy = (ys[i] - centerY) / radiusY
             dx * dx + dy * dy > 1f
         }
-        if (!outside) return null
-        val tooBig = xs.max() - xs.min() > 2 * radiusX || ys.max() - ys.min() > 2 * radiusY
+        val faceWidth = xs.max() - xs.min()
+        if (!outside) {
+            return if (faceWidth < viewWidth * MIN_FACE_WIDTH_FRACTION) "Move closer so your face fills the oval" else null
+        }
+        val tooBig = faceWidth > 2 * radiusX || ys.max() - ys.min() > 2 * radiusY
         return if (tooBig) "Move back so your face fits inside the oval" else "Center your face inside the oval"
     }
+
+    /**
+     * Why an uploaded photo's face can't be measured from where it sits in the frame, or null when
+     * it's fine: the photo counterpart of [positionHint]. [points] are normalized to the image.
+     */
+    fun photoRejection(points: List<LandmarkPoint>, imageWidth: Int): String? {
+        if (points.isEmpty()) return null
+        val minX = points.minOf { it.x }
+        val maxX = points.maxOf { it.x }
+        val minY = points.minOf { it.y }
+        val maxY = points.maxOf { it.y }
+        val problem = when {
+            minX < 0f || maxX > 1f || minY < 0f || maxY > 1f -> "Part of your face is cut off at the edge of that photo"
+            (maxX - minX) * imageWidth < MIN_PHOTO_FACE_WIDTH_PX -> "Your face is too small in that photo"
+            (minX + maxX) / 2f !in PHOTO_CENTER_RANGE || (minY + maxY) / 2f !in PHOTO_CENTER_RANGE ->
+                "Your face is too close to the edge of that photo"
+            else -> return null
+        }
+        return "$problem, so I can't measure your face shape reliably. " +
+            "Please upload one with your whole face near the middle, taken from closer up."
+    }
+
+    /** A face narrower than this share of the view is too far away to place landmarks precisely. */
+    private const val MIN_FACE_WIDTH_FRACTION = 0.35f
+
+    /** About the face width in pixels that [MIN_FACE_WIDTH_FRACTION] works out to on a live 480px-wide frame. */
+    private const val MIN_PHOTO_FACE_WIDTH_PX = 120f
+
+    /** Where a photo's face center may sit; outside it, lens stretch near the edges skews the widths. */
+    private val PHOTO_CENTER_RANGE = 0.15f..0.85f
 }

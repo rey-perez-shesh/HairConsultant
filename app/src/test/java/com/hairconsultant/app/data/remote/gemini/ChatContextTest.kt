@@ -6,6 +6,7 @@ import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -70,6 +71,22 @@ class ChatContextTest {
         assertNull(Gender.NON_BINARY.describeForChatContext())
         assertNull(Gender.PREFER_NOT_TO_SAY.describeForChatContext())
         assertNull((null as Gender?).describeForChatContext())
+    }
+
+    @Test
+    fun typedRequestsToSeeHairstylesCountAsTheChip() {
+        assertTrue(asksToSeeHairstyles("Show My Hairstyles"))
+        assertTrue(asksToSeeHairstyles("ok show me the new haircuts based on that"))
+        assertTrue(asksToSeeHairstyles("Can you suggest some options for curly hair?"))
+        assertTrue(asksToSeeHairstyles("I want to see my matches"))
+    }
+
+    @Test
+    fun ordinaryConsultationMessagesAreNotRequestsToSeeHairstyles() {
+        assertFalse(asksToSeeHairstyles("I want something shorter and easier to maintain"))
+        assertFalse(asksToSeeHairstyles("show me how to style it in the morning"))
+        assertFalse(asksToSeeHairstyles("which hairstyle is best for humid weather?"))
+        assertFalse(asksToSeeHairstyles("I want to see how it looks with a perm"))
     }
 
     private fun haircut(name: String, length: HairLength, texture: HairTexture, faceShapes: List<FaceShape>) = Haircut(

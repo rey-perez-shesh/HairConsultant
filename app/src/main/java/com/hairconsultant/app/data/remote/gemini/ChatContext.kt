@@ -60,3 +60,20 @@ fun haircutsNamedIn(reply: String, catalog: List<Haircut>, limit: Int = MAX_NAME
 }
 
 private const val MAX_NAMED_HAIRCUTS = 8
+
+/**
+ * Whether a typed chat message is the user asking to be shown hairstyles ("show me the new
+ * haircuts"), which should run the same matching as the "Show My Hairstyles" chip, so the picks
+ * reach the try-on strip too rather than only being described in a chat reply.
+ *
+ * Plural "styles"/"cuts" only: "show me how to style it" is a question, not a request for picks.
+ * shortcut: English keyword rule, so other phrasings just get a normal reply with the chip
+ * offered; have the model classify the message if that misses too often.
+ */
+fun asksToSeeHairstyles(text: String): Boolean = SHOW_VERB.containsMatchIn(text) && STYLES_NOUN.containsMatchIn(text)
+
+private val SHOW_VERB = Regex("\\b(show|see|view|give|suggest|recommend|display|list)\\b", RegexOption.IGNORE_CASE)
+private val STYLES_NOUN = Regex(
+    "\\b(hairstyles?|haircuts?|styles|cuts|matches|options|suggestions|recommendations|picks)\\b",
+    RegexOption.IGNORE_CASE
+)

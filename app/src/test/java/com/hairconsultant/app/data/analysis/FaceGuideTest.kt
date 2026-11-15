@@ -2,6 +2,7 @@ package com.hairconsultant.app.data.analysis
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FaceGuideTest {
@@ -10,7 +11,35 @@ class FaceGuideTest {
 
     @Test
     fun faceInsideTheOvalHasNoHint() {
-        assertNull(hintFor(face(centerX = 0.5f, centerY = 0.455f, halfSize = 0.1f)))
+        assertNull(hintFor(face(centerX = 0.5f, centerY = 0.455f, halfSize = 0.2f)))
+    }
+
+    @Test
+    fun farAwayFaceIsToldToMoveCloser() {
+        assertEquals(
+            "Move closer so your face fills the oval",
+            hintFor(face(centerX = 0.5f, centerY = 0.455f, halfSize = 0.1f))
+        )
+    }
+
+    @Test
+    fun photoWithACenteredLargeFaceIsAccepted() {
+        assertNull(FaceGuide.photoRejection(face(0.5f, 0.4f, 0.2f), 1000))
+    }
+
+    @Test
+    fun photoWithATinyFaceIsRejected() {
+        assertTrue(FaceGuide.photoRejection(face(0.5f, 0.5f, 0.05f), 1000)!!.startsWith("Your face is too small"))
+    }
+
+    @Test
+    fun photoWithAFaceAtTheEdgeIsRejected() {
+        assertTrue(FaceGuide.photoRejection(face(0.1f, 0.5f, 0.08f), 1000)!!.startsWith("Your face is too close to the edge"))
+    }
+
+    @Test
+    fun photoWithACutOffFaceIsRejected() {
+        assertTrue(FaceGuide.photoRejection(face(0.1f, 0.5f, 0.2f), 1000)!!.startsWith("Part of your face is cut off"))
     }
 
     @Test

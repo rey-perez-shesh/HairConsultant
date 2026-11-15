@@ -1,5 +1,10 @@
 package com.hairconsultant.app.ui.chatbot
 
+import androidx.compose.animation.core.StartOffset
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,11 +16,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Send
@@ -32,10 +39,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import com.hairconsultant.app.domain.model.ChatMessage
 import com.hairconsultant.app.domain.model.ChatSender
 import com.hairconsultant.app.domain.model.Haircut
@@ -76,9 +91,14 @@ fun ChatBotSheet(
             }
             extraContent?.invoke()
             val listState = rememberLazyListState()
-            LaunchedEffect(state.messages.size) {
+            // Shown only once a reply has taken a moment, so instant canned replies don't flash it.
+            val showTyping by produceState(initialValue = false, state.isBotTyping) {
+                if (state.isBotTyping) delay(250)
+                value = state.isBotTyping
+            }
+            LaunchedEffect(state.messages.size, showTyping) {
                 if (state.messages.isNotEmpty()) {
-                    listState.animateScrollToItem(state.messages.lastIndex)
+                    listState.animateScrollToItem(state.messages.lastIndex + if (showTyping) 1 else 0)
                 }
             }
             LazyColumn(
@@ -93,6 +113,7 @@ fun ChatBotSheet(
                         onQuickReplySelected = onQuickReplySelected
                     )
                 }
+                if (showTyping) item(key = "typing") { TypingBubble() }
             }
             Row(
                 modifier = Modifier.fillMaxWidth().imePadding().padding(12.dp),
@@ -110,6 +131,50 @@ fun ChatBotSheet(
                     Icon(Icons.Filled.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary)
                 }
             }
+        }
+    }
+}
+
+/** Three dots that lift one after another in a bot-colored bubble while a reply is on its way. */
+@Composable
+private fun TypingBubble() {
+    val transition = rememberInfiniteTransition(label = "typing")
+    val dotColor = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 14.dp, vertical = 14.dp)
+            .semantics {
+                contentDescription = "AI Hairstylist is typing"
+                liveRegion = LiveRegionMode.Polite
+            },
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        repeat(3) { index ->
+            val lift by transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 0f,
+                animationSpec = infiniteRepeatable(
+                    animation = keyframes {
+                        durationMillis = 1200
+                        0f at 0
+                        1f at 200
+                        0f at 400
+                    },
+                    initialStartOffset = StartOffset(index * 160)
+                ),
+                label = "dot$index"
+            )
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .graphicsLayer {
+                        translationY = -4.dp.toPx() * lift
+                        alpha = 0.4f + 0.6f * lift
+                    }
+                    .background(dotColor, CircleShape)
+            )
         }
     }
 }

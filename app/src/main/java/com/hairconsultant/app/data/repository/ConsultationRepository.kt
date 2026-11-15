@@ -6,6 +6,7 @@ import com.hairconsultant.app.data.local.dao.HaircutDao
 import com.hairconsultant.app.data.local.entity.ConsultationEntity
 import com.hairconsultant.app.data.local.entity.toDomain
 import com.hairconsultant.app.data.remote.firebase.ConsultationRemoteRepository
+import com.hairconsultant.app.data.remote.firebase.RemoteSavedLook
 import com.hairconsultant.app.domain.model.Consultation
 import com.hairconsultant.app.domain.model.ConsultationSource
 import com.hairconsultant.app.domain.model.FaceShape
@@ -20,6 +21,15 @@ interface ConsultationRepository {
     fun observeFavorites(userId: String): Flow<List<Consultation>>
     suspend fun save(consultation: Consultation)
     suspend fun setFavorite(consultationId: String, isFavorite: Boolean)
+
+    /** Deletes one saved look ([Consultation.isSavedLook]); un-favoriting it would leave a row no screen shows. */
+    suspend fun removeSavedLook(lookId: String)
+
+    /**
+     * Copies the account's saved looks from Firestore into this phone's Favorites, e.g. after a
+     * reinstall, and backs up this phone's looks if the account has none stored yet.
+     */
+    suspend fun restoreSavedLooks(userId: String)
     suspend fun clearHistory(userId: String)
     suspend fun clearFavorites(userId: String)
 }
@@ -42,8 +52,41 @@ class ConsultationRepositoryImpl(
 
     override suspend fun save(consultation: Consultation) {
         consultationDao.upsert(consultation.toEntity())
+        if (consultation.isSavedLook) {
+            // A look whose picture never reached Storage only has a file on this phone, which
+            // another device couldn't show, so it stays local. Its own collection, not
+            // "consultations": there each look would count as an extra scan in admin analytics.
+            if (!consultation.resultImageUrl.isRemote()) return
+            runCatching { remote.saveLook(RemoteSavedLook(consultation, consultation.selectedHaircut?.id)) }
+                .onFailure { Log.w(TAG, "Couldn't save look ${consultation.id} to Firestore", it) }
+            return
+        }
         runCatching { remote.save(consultation) }
             .onFailure { Log.w(TAG, "Couldn't save consultation ${consultation.id} to Firestore", it) }
+    }
+
+    override suspend fun removeSavedLook(lookId: String) {
+        consultationDao.delete(lookId)
+        runCatching { remote.deleteLook(lookId) }
+            .onFailure { Log.w(TAG, "Couldn't delete look $lookId from Firestore", it) }
+    }
+
+    /**
+     * shortcut: adds what Firestore has and never removes, so a look deleted on one phone stays
+     * on another until it's removed there too; make Firestore authoritative if that matters.
+     */
+    override suspend fun restoreSavedLooks(userId: String) {
+        val looks = runCatching { remote.fetchLooks(userId) }
+            .onFailure { Log.w(TAG, "Couldn't restore saved looks from Firestore", it) }
+            .getOrNull() ?: return
+        looks.forEach { consultationDao.upsert(it.look.toEntity().copy(selectedHaircutId = it.haircutId)) }
+        // Nothing backed up yet but looks on the phone: they were saved before the account had
+        // a backup (an older build, or before the savedLooks rules were deployed), so send them up.
+        if (looks.isNotEmpty()) return
+        consultationDao.savedLooks(userId).filter { it.resultImageUrl.isRemote() }.forEach { entity ->
+            runCatching { remote.saveLook(RemoteSavedLook(entity.toDomain(haircut = null), entity.selectedHaircutId)) }
+                .onFailure { Log.w(TAG, "Couldn't back up look ${entity.id} to Firestore", it) }
+        }
     }
 
     override suspend fun setFavorite(consultationId: String, isFavorite: Boolean) {
@@ -58,6 +101,9 @@ class ConsultationRepositoryImpl(
 
     override suspend fun clearFavorites(userId: String) {
         consultationDao.clearFavorites(userId)
+        // Otherwise the next restoreSavedLooks would bring the deleted looks straight back.
+        runCatching { remote.deleteLooks(userId) }
+            .onFailure { Log.w(TAG, "Couldn't delete saved looks from Firestore", it) }
     }
 
     private companion object {
@@ -66,6 +112,9 @@ class ConsultationRepositoryImpl(
 }
 
 private fun com.hairconsultant.app.data.local.entity.HaircutEntity.toHaircutOrNull() = toDomain()
+
+/** A Storage link another device can load, as opposed to a file or picker URI on this phone. */
+private fun String?.isRemote() = this?.startsWith("http") == true
 
 private fun ConsultationEntity.toDomain(haircut: com.hairconsultant.app.domain.model.Haircut?) = Consultation(
     id = id,

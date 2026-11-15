@@ -11,7 +11,18 @@ data class Consultation(
     val resultImageUrl: String?,
     val isFavorite: Boolean = false,
     val createdAtEpochMillis: Long = 0L
-)
+) {
+    /** One generated preview the user kept to compare, rather than a whole scan/upload session. */
+    val isSavedLook: Boolean get() = id.startsWith(SAVED_LOOK_ID_PREFIX)
+}
+
+/**
+ * Ids starting with this are saved looks: a single generated preview stored as a favorited
+ * consultation of its own, so Favorites can hold several looks from one photo side by side.
+ * shortcut: told apart by id prefix so saved looks need no table or column of their own; give
+ * them one if they ever carry fields a consultation doesn't.
+ */
+const val SAVED_LOOK_ID_PREFIX = "look-"
 
 data class ChatMessage(
     val id: String,

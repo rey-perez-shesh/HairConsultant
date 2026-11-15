@@ -52,7 +52,7 @@ import com.hairconsultant.app.ui.chatbot.ChatBotController
  * applied, so every repository below talks to the real backend:
  *  - Auth -> [FirebaseAuthRepository] (login/register).
  *  - Firestore -> [FirestoreUserProfileRepository] (profile + preferences),
- *    [FirestoreConsultationRepository] (consultation history + favorites),
+ *    [FirestoreConsultationRepository] (consultation history + favorites + saved looks),
  *    [FirestoreFeedbackRepository] (star ratings + written reviews), and
  *    [FirestoreHaircutRepository] (the face-shape-justified haircut catalog).
  *  - Storage -> [FirebaseMediaStorageRepository] (consultation photos + try-on results).

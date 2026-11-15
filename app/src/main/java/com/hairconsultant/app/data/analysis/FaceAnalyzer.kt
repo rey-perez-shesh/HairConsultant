@@ -113,6 +113,7 @@ class LandmarkFaceAnalyzer(
             // Same rule as the live scan: a turned or tilted head gives the wrong face shape, so
             // an angled photo is refused rather than measured.
             FaceAlignment.photoRejection(detection.angles)?.let { throw NoFaceDetectedException(it) }
+            FaceGuide.photoRejection(detection.points, bitmap.width)?.let { throw NoFaceDetectedException(it) }
             return classify(detection.points, bitmap.width, bitmap.height, bitmap, liveHair = null)
         } finally {
             bitmap.recycle()

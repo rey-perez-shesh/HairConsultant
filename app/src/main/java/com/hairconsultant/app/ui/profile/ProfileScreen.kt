@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,6 +46,7 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -65,6 +67,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.hairconsultant.app.domain.model.Consultation
 import com.hairconsultant.app.domain.model.ConsultationSource
@@ -85,6 +89,7 @@ fun ProfileScreen(
     onToggleTheme: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var openLook by remember { mutableStateOf<Consultation?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -114,9 +119,27 @@ fun ProfileScreen(
             val list = if (uiState.selectedTab == ProfileTab.HISTORY) uiState.history else uiState.favorites
             if (list.isEmpty()) {
                 item { EmptyHistoryCard(selectedTab = uiState.selectedTab) }
-            } else {
+            } else if (uiState.selectedTab == ProfileTab.HISTORY) {
                 items(list, key = { it.id }) { consultation ->
                     ConsultationRow(consultation = consultation, onToggleFavorite = { viewModel.toggleFavorite(consultation) })
+                }
+            } else {
+                // Two to a row, so looks sit side by side for comparing.
+                items(list.chunked(2), key = { row -> row.first().id }) { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        row.forEach { look ->
+                            FavoriteLookCard(
+                                consultation = look,
+                                onOpen = { openLook = look },
+                                onRemove = { viewModel.toggleFavorite(look) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
             }
 
@@ -133,6 +156,8 @@ fun ProfileScreen(
         }
         StatusBarScrim()
     }
+
+    openLook?.let { look -> LookDialog(consultation = look, onDismiss = { openLook = null }) }
 }
 
 /** The shop-front header (black, grey in dark mode): who's signed in, their counts, the overflow menu, and the History / Favorites tabs. */
@@ -332,7 +357,7 @@ private fun EmptyHistoryCard(selectedTab: ProfileTab) {
                 text = if (selectedTab == ProfileTab.HISTORY) {
                     "No consultations yet — try a face scan or upload a photo."
                 } else {
-                    "No favorites yet — tap the heart on a consultation to save it here."
+                    "No favorites yet — tap Save look on a preview in Upload, or the heart on a consultation."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -406,6 +431,106 @@ private fun ConsultationRow(consultation: Consultation, onToggleFavorite: () -> 
         }
     }
 }
+
+/** What a favorite shows: the user's own generated preview when there is one, else the style, else their photo. */
+private fun Consultation.lookImage(): String? = resultImageUrl ?: selectedHaircut?.imageUrl ?: sourceImageUrl
+
+private fun Consultation.lookTitle(): String = selectedHaircut?.name ?: "${scanResult.faceShape.displayName} scan"
+
+/** One favorite in the comparison grid: the whole picture, never cropped, since the hair is the point. */
+@Composable
+private fun FavoriteLookCard(
+    consultation: Consultation,
+    onOpen: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shop = LocalShopColors.current
+    Card(
+        onClick = onOpen,
+        modifier = modifier,
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        AsyncImage(
+            model = consultation.lookImage(),
+            contentDescription = null,
+            modifier = Modifier.fillMaxWidth().aspectRatio(LOOK_ASPECT_RATIO).background(shop.imageWell),
+            contentScale = ContentScale.Fit
+        )
+        Row(modifier = Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
+                Text(
+                    consultation.lookTitle(),
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (consultation.createdAtEpochMillis > 0) {
+                    Text(
+                        formatConsultationDate(consultation.createdAtEpochMillis),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            IconButton(onClick = onRemove) {
+                Icon(
+                    imageVector = Icons.Filled.Favorite,
+                    contentDescription = "Remove ${consultation.lookTitle()} from favorites",
+                    tint = shop.fit
+                )
+            }
+        }
+    }
+}
+
+/** A favorite opened large, for a closer look than the grid gives. */
+@Composable
+private fun LookDialog(consultation: Consultation, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            AsyncImage(
+                model = consultation.lookImage(),
+                contentDescription = "${consultation.lookTitle()} preview",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(LOOK_ASPECT_RATIO)
+                    .background(LocalShopColors.current.imageWell),
+                contentScale = ContentScale.Fit
+            )
+            Row(
+                modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        consultation.lookTitle(),
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        consultationDetail(consultation),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        }
+    }
+}
+
+/** Portrait, close to the shape of the photos people upload; generated previews can also be square. */
+private const val LOOK_ASPECT_RATIO = 4f / 5f
 
 private fun consultationDetail(consultation: Consultation): String {
     val source = when (consultation.source) {

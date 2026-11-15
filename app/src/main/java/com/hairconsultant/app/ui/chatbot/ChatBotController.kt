@@ -20,8 +20,13 @@ import java.util.UUID
 data class ChatBotUiState(
     val isOpen: Boolean = false,
     val messages: List<ChatMessage> = emptyList(),
-    val input: String = ""
-)
+    val input: String = "",
+    /** User messages whose reply is still being worked out; a count, since another can be sent mid-reply. */
+    val pendingReplies: Int = 0
+) {
+    /** True while the consultant is working on a reply, so the sheet can show a typing indicator. */
+    val isBotTyping: Boolean get() = pendingReplies > 0
+}
 
 /**
  * Drives the single floating AI-chatbot bottom sheet shared across Home, Face Scan and Image
@@ -110,7 +115,18 @@ class ChatBotController(
         val message = user(text)
         _state.update { it.copy(messages = it.messages + message, input = "") }
         persist(message)
-        onUserMessage(text)
+        awaitReply(text)
+    }
+
+    /** Runs the active screen's handler, keeping [ChatBotUiState.isBotTyping] on until it has replied (or failed). */
+    private suspend fun awaitReply(text: String) {
+        _state.update { it.copy(pendingReplies = it.pendingReplies + 1) }
+        try {
+            onUserMessage(text)
+        } finally {
+            // Floor at 0: a sign-out mid-reply replaces the whole state, count included.
+            _state.update { it.copy(pendingReplies = (it.pendingReplies - 1).coerceAtLeast(0)) }
+        }
     }
 
     /** A tap on one of a bot message's quick-reply chips behaves like typing + sending that reply. */
@@ -118,7 +134,7 @@ class ChatBotController(
         val message = user(text)
         _state.update { it.copy(messages = it.messages + message) }
         persist(message)
-        onUserMessage(text)
+        awaitReply(text)
     }
 
     fun pushBotMessage(text: String, haircutOptions: List<Haircut> = emptyList(), quickReplies: List<String> = emptyList()) {

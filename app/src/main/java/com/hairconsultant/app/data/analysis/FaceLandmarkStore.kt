@@ -85,7 +85,10 @@ class FaceLandmarkStore {
             latestWidth = width
             latestHeight = height
             latestAtElapsed = SystemClock.elapsedRealtime()
-            if (metrics != null) {
+            // Scan is only enabled inside the oval, but the user can drift during the scan window;
+            // frames outside it (or too far away) aren't measured.
+            val inGuide = FaceGuide.positionHint(points, width, height, guideWidth, guideHeight) == null
+            if (metrics != null && inGuide) {
                 recentSamples.addLast(FaceFrameSample(metrics, angles, latestAtElapsed))
                 while (recentSamples.size > MAX_SAMPLES) recentSamples.removeFirst()
             }

@@ -10,12 +10,12 @@ import com.hairconsultant.app.data.remote.firebase.MediaStorageRepository
 import com.hairconsultant.app.data.recommendation.HairstyleRecommender
 import com.hairconsultant.app.data.remote.gemini.ExtractedPreferences
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
+import com.hairconsultant.app.data.remote.gemini.asksToSeeHairstyles
 import com.hairconsultant.app.data.remote.gemini.GeminiImageRepository
 import com.hairconsultant.app.data.remote.gemini.describeForChatContext
 import com.hairconsultant.app.data.remote.gemini.haircutsNamedIn
 import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.UserRepository
-import com.hairconsultant.app.domain.model.ChatSender
 import com.hairconsultant.app.domain.model.Consultation
 import com.hairconsultant.app.domain.model.ConsultationSource
 import com.hairconsultant.app.domain.model.FaceShape
@@ -24,15 +24,22 @@ import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairColor
 import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
+import com.hairconsultant.app.domain.model.SAVED_LOOK_ID_PREFIX
 import com.hairconsultant.app.domain.model.ScanResult
 import com.hairconsultant.app.domain.model.TreatmentPreference
 import com.hairconsultant.app.ui.chatbot.ChatBotController
 import com.hairconsultant.app.ui.chatbot.ChatBotUiState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -55,6 +62,8 @@ data class ImageUploadUiState(
     val selectedHaircut: Haircut? = null,
     val isGenerating: Boolean = false,
     val generatedImageUri: Uri? = null,
+    /** The id the preview on screen is, or would be, saved to Favorites under; null when none is showing. */
+    val lookId: String? = null,
     val generationError: String? = null,
     val remoteSourceImageUrl: String? = null,
     val remoteResultImageUrl: String? = null
@@ -79,6 +88,16 @@ class ImageUploadViewModel(
         viewModelScope, SharingStarted.WhileSubscribed(5000), ChatBotUiState()
     )
 
+    /** Whether the preview on screen is in the user's Favorites, read from storage so removing it in Profile shows here too. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val isLookSaved: StateFlow<Boolean> = combine(
+        _uiState.map { it.lookId }.distinctUntilChanged(),
+        authRepository.currentUser.flatMapLatest { user ->
+            user?.let { consultationRepository.observeFavorites(it.uid) } ?: flowOf(emptyList())
+        }
+    ) { lookId, favorites -> lookId != null && favorites.any { it.id == lookId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     /** Claims the shared chatbot's next reply whenever Image Upload becomes the active screen. */
     fun activateChat() {
         chatBot.setHandler { text -> handleFreeText(text) }
@@ -91,6 +110,8 @@ class ImageUploadViewModel(
 
     fun onImagePicked(uri: Uri) {
         consultationId = UUID.randomUUID().toString()
+        previews.clear()
+        generating.clear()
         _uiState.update {
             ImageUploadUiState(sourceImageUri = uri, stage = ImageUploadStage.ANALYZING)
         }
@@ -138,12 +159,13 @@ class ImageUploadViewModel(
 
     /**
      * The consultation loop: the user talks freely with the AI consultant for as long as they
-     * like, and every tap of [CONFIRM_LABEL] runs [showHairstyles]. Anything said after
+     * like, and every tap of [CONFIRM_LABEL], or typed request to see hairstyles
+     * ([asksToSeeHairstyles]), runs [showHairstyles]. Anything else said after
      * suggestions are shown reopens the consultation, so new or changed parameters get a fresh
      * round of thinking the next time [CONFIRM_LABEL] is tapped.
      */
     private suspend fun onConsultingReply(text: String) {
-        if (text.equals(CONFIRM_LABEL, ignoreCase = true)) {
+        if (asksToSeeHairstyles(text)) {
             showHairstyles()
         } else {
             _uiState.update { it.copy(stage = ImageUploadStage.CONSULTING) }
@@ -169,6 +191,8 @@ class ImageUploadViewModel(
         chatRepository.reply(conversation.recentMessages, text, context, conversation.summary)
             .onSuccess { reply ->
                 val pictures = if (consulting) emptyList() else haircutsNamedIn(reply, catalog)
+                // The strip always offers the same styles as the latest pictures in the chat.
+                if (pictures.isNotEmpty()) _uiState.update { it.copy(suggestions = pictures) }
                 chatBot.pushBotMessage(reply, haircutOptions = pictures, quickReplies = quickReplies)
             }
             .onFailure { error ->
@@ -194,8 +218,8 @@ class ImageUploadViewModel(
             if (scan != null) {
                 append(
                     "\nNo hairstyle pictures are shown with your replies; the user sees their top matches as " +
-                        "pictures when they tap \"$CONFIRM_LABEL\". If they add or change preferences, you can " +
-                        "mention that tapping it will update their picks."
+                        "pictures when they tap \"$CONFIRM_LABEL\" or ask to see their hairstyles. If they add or change " +
+                        "preferences, you can mention that doing so again will update their picks."
                 )
                 val closest = recommender.shortlist(scan, currentParameters(), gender, CLOSEST_MATCHES_HINT)
                 append(
@@ -226,7 +250,7 @@ class ImageUploadViewModel(
                     quickReplies = fixMenuQuickReplies(includeTexture = _uiState.value.scanResult?.hairLength != HairLength.BALD)
                 )
             }
-            text.equals(CONFIRM_LABEL, ignoreCase = true) -> {
+            asksToSeeHairstyles(text) -> {
                 enterConsulting()
                 showHairstyles()
             }
@@ -334,6 +358,7 @@ class ImageUploadViewModel(
                 selectedHaircut = null,
                 isGenerating = false,
                 generatedImageUri = null,
+                lookId = null,
                 generationError = null,
                 remoteResultImageUrl = null
             )
@@ -436,21 +461,79 @@ class ImageUploadViewModel(
         return userRepository.get(uid)?.gender
     }
 
+    /**
+     * A preview already generated for the current photo: the local file, its Storage URL once
+     * uploaded, and the id it's saved to Favorites under if the user keeps it.
+     */
+    private data class Preview(
+        val localUri: Uri,
+        val remoteUrl: String? = null,
+        val lookId: String = SAVED_LOOK_ID_PREFIX + UUID.randomUUID()
+    )
+
+    /**
+     * Previews generated for the current photo, by [previewKey], so going back to a style shows
+     * it again instead of paying for a new generation. Cleared when a new photo is picked.
+     * shortcut: in memory only, so it's lost when this ViewModel is; persist it if previews
+     * should survive leaving the app.
+     */
+    private val previews = mutableMapOf<String, Preview>()
+
+    /** Styles being generated right now, so a second tap on one doesn't start a duplicate request. */
+    private val generating = mutableSetOf<String>()
+
+    /** The treatment is part of the prompt, so the same style with a different one is a different preview. */
+    private fun previewKey(haircut: Haircut) =
+        "${haircut.id}|${_uiState.value.desiredTreatment ?: haircut.treatment}"
+
     fun onHaircutSelected(haircut: Haircut) {
         val sourceUri = _uiState.value.sourceImageUri ?: return
-        _uiState.update {
-            it.copy(selectedHaircut = haircut, isGenerating = true, generatedImageUri = null, generationError = null)
+        val key = previewKey(haircut)
+        previews[key]?.let { cached ->
+            _uiState.update {
+                it.copy(
+                    selectedHaircut = haircut,
+                    isGenerating = false,
+                    generatedImageUri = cached.localUri,
+                    lookId = cached.lookId,
+                    generationError = null,
+                    remoteResultImageUrl = cached.remoteUrl
+                )
+            }
+            persistConsultation(selectedHaircut = haircut)
+            return
         }
+        _uiState.update {
+            it.copy(
+                selectedHaircut = haircut,
+                isGenerating = true,
+                generatedImageUri = null,
+                lookId = null,
+                generationError = null,
+                remoteResultImageUrl = null
+            )
+        }
+        if (!generating.add(key)) return
         chatBot.pushBotMessage("Generating \"${haircut.name}\" on your photo...")
         viewModelScope.launch {
             val prompt = buildStylePrompt(haircut)
             val referenceUri = runCatching { Uri.parse(haircut.imageUrl) }.getOrNull()
             val result = geminiImageRepository.generateHaircutPreview(sourceUri, referenceUri, prompt)
+            generating.remove(key)
+            // The user may have picked a new photo or moved to another style while this ran.
+            if (_uiState.value.sourceImageUri != sourceUri) return@launch
+            val stillSelected = _uiState.value.selectedHaircut?.id == haircut.id
             result.onSuccess { generatedUri ->
-                _uiState.update { it.copy(isGenerating = false, generatedImageUri = generatedUri) }
-                chatBot.pushBotMessage("Here's your new look!")
-                uploadResultAndPersist(haircut, generatedUri)
+                val preview = Preview(generatedUri).also { previews[key] = it }
+                if (stillSelected) {
+                    _uiState.update {
+                        it.copy(isGenerating = false, generatedImageUri = generatedUri, lookId = preview.lookId)
+                    }
+                    chatBot.pushBotMessage("Here's your new look!")
+                }
+                uploadResultAndPersist(haircut, key, generatedUri)
             }.onFailure { error ->
+                if (!stillSelected) return@onFailure
                 _uiState.update { it.copy(isGenerating = false, generationError = error.message) }
                 chatBot.pushBotMessage(
                     "I couldn't generate that preview yet (${error.message}). " +
@@ -462,55 +545,97 @@ class ImageUploadViewModel(
     }
 
     /**
-     * Builds the Gemini image prompt from the chatbot conversation: the face shape the user
-     * confirmed, the length/texture/treatment they chose while chatting, and everything else they
-     * typed or tapped, so the generated preview reflects what was actually discussed. Explicitly
-     * tells Gemini which of the two attached images is which, since [GeminiImageRepository.
-     * generateHaircutPreview] now sends the catalog's own reference photo for [haircut] alongside
-     * the user's source photo, rather than leaving the style's look to be guessed from its name.
-     *
-     * Reuses [ChatBotController.buildReplyContext] (the same bounded recent-window + rolling
-     * summary built for chat replies) instead of re-truncating [chatBot]'s full history here —
-     * so, unlike the old oldest-first `.take(600)`, the *most recent* thing the user asked for
-     * survives, no matter how long the persisted conversation has grown across sessions.
+     * Throws away the preview on screen and generates the same style afresh, for when the result
+     * missed (the model's output varies from one request to the next). A look already saved to
+     * Favorites is a record of its own and stays there.
      */
-    private suspend fun buildStylePrompt(haircut: Haircut): String {
+    fun regeneratePreview() {
+        val haircut = _uiState.value.selectedHaircut ?: return
+        previews.remove(previewKey(haircut))
+        onHaircutSelected(haircut)
+    }
+
+    /**
+     * Builds the Gemini image prompt for [haircut]: which of the two attached images is which
+     * ([GeminiImageRepository.generateHaircutPreview] sends the catalog's reference picture
+     * alongside the user's photo), the style's own details, and the chosen treatment.
+     *
+     * Deliberately carries nothing from the chat: the conversation summary and recent user turns
+     * used to be appended, but they name other styles and include button presses ("Rescan",
+     * "Show My Hairstyles"), which only pull the image model away from the selected style.
+     */
+    private fun buildStylePrompt(haircut: Haircut): String {
         val state = _uiState.value
-        val conversation = chatBot.buildReplyContext()
-        val recentUserAsks = conversation.recentMessages
-            .filter { it.sender == ChatSender.USER }
-            .takeLast(MAX_STYLE_PROMPT_USER_TURNS)
-            .joinToString(separator = "; ") { it.text }
         return buildString {
-            append("The first attached image is a photo of the person to restyle. The second attached image is ")
-            append("a reference photo of the exact \"${haircut.name}\" hairstyle (")
-            append("${haircut.length.displayName.lowercase()} length, ${haircut.texture.displayName.lowercase()} texture) — ")
-            append("apply that hairstyle's shape and cut to the person in the first image, ")
-            append("keeping their face, skin tone, and background unchanged.")
+            // No length/texture label: the catalog's can contradict the picture (a neck-length
+            // "Short Feathered Shag"), and the model then follows the words over the image.
+            append("The first attached image is a cutout of the \"${haircut.name}\" hairstyle on a plain white ")
+            append("background. The second attached image is a photo of the person to restyle. Edit the second ")
+            append("image: replace the person's current hair completely with the hairstyle in the first image. ")
+            append("The first image is the authority for the cut: copy its length, layering, parting, fringe and ")
+            append("overall silhouette exactly as shown, even where that differs from the style's name. The result ")
+            append("must look clearly different from the person's current haircut. Use the person's own hair ")
+            append("color, and keep their face, skin tone, expression, clothing, background and the photo's ")
+            append("framing unchanged.")
             if (haircut.description.isNotBlank()) {
                 append(" Style detail: ${haircut.description}")
             }
-            state.scanResult?.let { append(" Their face shape is ${it.faceShape.displayName.lowercase()}.") }
             (state.desiredTreatment ?: haircut.treatment).takeIf { it != TreatmentPreference.NONE }?.let {
                 append(" Include a ${it.displayName.lowercase()} treatment look.")
-            }
-            if (!conversation.summary.isNullOrBlank()) {
-                append(" Earlier in the conversation: ${conversation.summary}")
-            }
-            if (recentUserAsks.isNotBlank()) {
-                append(" Recent requests from the user: $recentUserAsks.")
             }
         }
     }
 
     /** Uploads the generated try-on preview to Storage, then saves the consultation with its URL. */
-    private fun uploadResultAndPersist(haircut: Haircut, generatedUri: Uri) {
+    private fun uploadResultAndPersist(haircut: Haircut, key: String, generatedUri: Uri) {
         val uid = authRepository.currentUser.value?.uid ?: return
         viewModelScope.launch {
             val resultUrl = runCatching { mediaStorageRepository.uploadTryOnResult(uid, generatedUri) }
                 .getOrElse { generatedUri.toString() }
+            // Only if this preview is still the current photo's, and still the one on screen.
+            val preview = previews[key]?.takeIf { it.localUri == generatedUri } ?: return@launch
+            previews[key] = preview.copy(remoteUrl = resultUrl)
+            if (_uiState.value.selectedHaircut?.id != haircut.id) return@launch
             _uiState.update { it.copy(remoteResultImageUrl = resultUrl) }
             persistConsultation(selectedHaircut = haircut)
+        }
+    }
+
+    /**
+     * Keeps the preview on screen in the profile's Favorites as a look of its own, so several
+     * styles tried on one photo can be compared there; tapping again removes it.
+     */
+    fun toggleSaveLook() {
+        val state = _uiState.value
+        val lookId = state.lookId ?: return
+        val haircut = state.selectedHaircut ?: return
+        val localUri = state.generatedImageUri ?: return
+        val scan = state.scanResult ?: return
+        val uid = authRepository.currentUser.value?.uid ?: return
+        viewModelScope.launch {
+            if (isLookSaved.value) {
+                consultationRepository.removeSavedLook(lookId)
+                return@launch
+            }
+            // A saved look needs a link that outlives the cache file, so if the preview's own
+            // upload is still running or failed, upload it now.
+            val resultUrl = previews.values.firstOrNull { it.lookId == lookId }?.remoteUrl
+                ?.takeIf { it.startsWith("http") }
+                ?: runCatching { mediaStorageRepository.uploadTryOnResult(uid, localUri) }
+                    .getOrElse { localUri.toString() }
+            consultationRepository.save(
+                Consultation(
+                    id = lookId,
+                    userId = uid,
+                    source = ConsultationSource.IMAGE_UPLOAD,
+                    scanResult = scan,
+                    selectedHaircut = haircut,
+                    sourceImageUrl = state.remoteSourceImageUrl ?: state.sourceImageUri?.toString(),
+                    resultImageUrl = resultUrl,
+                    isFavorite = true,
+                    createdAtEpochMillis = System.currentTimeMillis()
+                )
+            )
         }
     }
 
@@ -569,8 +694,6 @@ private const val FIX_HAIR_LENGTH_LABEL = "Hair length"
 private const val FIX_HAIR_TEXTURE_LABEL = "Hair texture"
 private const val RESCAN_LABEL = "Rescan"
 private const val CONFIRM_LABEL = "Show My Hairstyles"
-/** How many of the most recent user chat turns get quoted into the image-generation prompt. */
-private const val MAX_STYLE_PROMPT_USER_TURNS = 6
 private const val CONSULT_LABEL = "Consult with me first"
 private const val FIX_SCAN_LABEL = "Fix scan results"
 /** How many scan-closest styles are pointed out to the consultant as a starting point. */
