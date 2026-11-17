@@ -53,7 +53,7 @@ fun CameraPreview(
     val lifecycleOwner = LocalLifecycleOwner.current
     val overlayFrame by landmarkStore.overlay.collectAsState()
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
-    val hairSegmenter = remember { LiveHairSegmenter(context.applicationContext, landmarkStore::publishHair) }
+    val hairSegmenter = remember { LiveHairSegmenter(context.applicationContext, onMask = landmarkStore::publishHair) }
     val landmarker = remember {
         LiveFaceLandmarker(context.applicationContext, landmarkStore, hairSegmenter)
     }

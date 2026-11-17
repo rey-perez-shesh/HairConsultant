@@ -1,5 +1,6 @@
 package com.hairconsultant.app.ui.navigation
 
+import android.net.Uri
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CameraAlt
@@ -16,9 +17,18 @@ sealed class Screen(val route: String) {
     data object ImageUpload : Screen("image_upload")
     data object Profile : Screen("profile")
 
+    /** Hair color try-on. Not a tab: opened from Home, Face Scan, or a photo on Upload ([PHOTO_ARG]). */
+    data object ColorStudio : Screen("color_studio?photo={photo}") {
+        const val PHOTO_ARG = "photo"
+
+        /** [photo] null is the live camera. */
+        fun route(photo: Uri? = null): String =
+            if (photo == null) "color_studio" else "color_studio?$PHOTO_ARG=${Uri.encode(photo.toString())}"
+    }
+
     companion object {
         /** Screens where a photo/analysis is in progress and shouldn't show chrome around it. */
-        val fullScreenRoutes = setOf(FaceScan.route)
+        val fullScreenRoutes = setOf(FaceScan.route, ColorStudio.route)
     }
 }
 

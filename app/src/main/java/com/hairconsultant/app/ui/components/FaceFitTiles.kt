@@ -24,14 +24,16 @@ import com.hairconsultant.app.ui.theme.LocalShopColors
 /**
  * One small tile per face shape (O R S H D), filled where [suits] includes it, so which faces a
  * cut suits reads at a glance. [userShape]'s tile gets a ring so the user finds their own.
- * [onShell] switches the empty tiles to colours that read on the shell header.
+ * [onShell] switches the empty tiles to colours that read on the shell header; [large] is the
+ * Profile header's size, where the row stands for the user rather than annotating a card.
  */
 @Composable
 fun FaceFitTiles(
     suits: Collection<FaceShape>,
     userShape: FaceShape?,
     modifier: Modifier = Modifier,
-    onShell: Boolean = false
+    onShell: Boolean = false,
+    large: Boolean = false
 ) {
     val shop = LocalShopColors.current
     val emptyLine = if (onShell) shop.shellLine else MaterialTheme.colorScheme.outline
@@ -41,6 +43,9 @@ fun FaceFitTiles(
     val fill = if (onShell) shop.onShell else shop.fit
     val onFill = if (onShell) shop.shell else MaterialTheme.colorScheme.surface
     val description = fitDescription(suits, userShape)
+    val slot = if (large) 28.dp else SLOT
+    val tile = if (large) 20.dp else TILE
+    val letter = if (large) 11.sp else 9.sp
     Row(modifier = modifier.clearAndSetSemantics { contentDescription = description }) {
         FaceShape.entries.forEach { shape ->
             val filled = shape in suits
@@ -48,20 +53,20 @@ fun FaceFitTiles(
             // Every tile sits in the same slot so the ringed one doesn't shift the row.
             Box(
                 modifier = Modifier
-                    .size(SLOT)
+                    .size(slot)
                     .then(if (shape == userShape) Modifier.border(2.dp, ring, RoundedCornerShape(5.dp)) else Modifier),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
-                        .size(TILE)
+                        .size(tile)
                         .background(if (filled) fill else Color.Transparent, tileShape)
                         .border(1.5.dp, if (filled) fill else emptyLine, tileShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = shape.displayName.take(1),
-                        style = TextStyle(fontSize = 9.sp, lineHeight = 9.sp, fontWeight = FontWeight.Bold),
+                        style = TextStyle(fontSize = letter, lineHeight = letter, fontWeight = FontWeight.Bold),
                         color = if (filled) onFill else emptyText
                     )
                 }

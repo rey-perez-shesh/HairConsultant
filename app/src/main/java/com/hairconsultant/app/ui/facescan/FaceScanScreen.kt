@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
@@ -57,6 +58,7 @@ import com.hairconsultant.app.ui.chatbot.ChatBotSheet
 import com.hairconsultant.app.ui.chatbot.rememberChatBotSheetState
 import com.hairconsultant.app.ui.components.ChatIconButton
 import com.hairconsultant.app.ui.components.OverlayButton
+import com.hairconsultant.app.ui.components.OverlayIconButton
 import com.hairconsultant.app.ui.deepar.DeepArCurtainsActivity
 import com.hairconsultant.app.ui.theme.CameraScrim
 import com.hairconsultant.app.ui.theme.OnShell
@@ -67,7 +69,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
-fun FaceScanScreen(viewModel: FaceScanViewModel) {
+fun FaceScanScreen(viewModel: FaceScanViewModel, onOpenColorStudio: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
     val chatState by viewModel.chatState.collectAsState()
     val sheetState = rememberChatBotSheetState()
@@ -111,7 +113,7 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
         // Let CameraX unbind before DeepAR grabs the camera.
         delay(120)
         deepArLauncher.launch(
-            DeepArCurtainsActivity.intent(context, effect, haircut.name)
+            DeepArCurtainsActivity.intent(context, effect, haircut.name, haircut.id)
         )
         viewModel.clearTryOn()
     }
@@ -203,6 +205,8 @@ fun FaceScanScreen(viewModel: FaceScanViewModel) {
                         }
                     }
                 }
+                // Icon only: the scan guidance sign beside it needs the width.
+                OverlayIconButton(icon = Icons.Filled.Palette, contentDescription = "Try a hair color", onClick = onOpenColorStudio)
                 ChatIconButton(onClick = { viewModel.chatBot.setOpen(true) }, onScrim = true)
             }
         }

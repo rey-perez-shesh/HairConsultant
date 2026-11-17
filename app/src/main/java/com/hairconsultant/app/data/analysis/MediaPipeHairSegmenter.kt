@@ -12,6 +12,7 @@ import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenter
 import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenterResult
+import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -23,6 +24,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class LiveHairSegmenter(
     context: Context,
+    /** See [toHairMask]; off for the try-on cover, which was tuned on the hard mask. */
+    private val softConfidence: Boolean = false,
     private val onMask: (HairMask?) -> Unit
 ) : AutoCloseable {
 
@@ -38,14 +41,17 @@ class LiveHairSegmenter(
 
     val isReady: Boolean get() = segmenter != null
 
-    fun detect(bitmap: Bitmap, timestampMs: Long = SystemClock.uptimeMillis()) {
-        val imageSegmenter = segmenter ?: return
-        if (!busy.compareAndSet(false, true)) return
-        try {
+    /** @return false if the frame was dropped (still busy with the last one, or no segmenter): [onMask] won't fire for it. */
+    fun detect(bitmap: Bitmap, timestampMs: Long = SystemClock.uptimeMillis()): Boolean {
+        val imageSegmenter = segmenter ?: return false
+        if (!busy.compareAndSet(false, true)) return false
+        return try {
             imageSegmenter.segmentAsync(BitmapImageBuilder(bitmap).build(), timestampMs)
+            true
         } catch (t: Throwable) {
             busy.set(false)
             Log.e(TAG, "detect() failed", t)
+            false
         }
     }
 
@@ -63,12 +69,14 @@ class LiveHairSegmenter(
         .setErrorListener { error ->
             busy.set(false)
             Log.e(TAG, "Live Hair Segmenter error", error)
+            // Every accepted frame gets an answer, so a caller holding that frame can let go of it.
+            onMask(null)
         }
         .build()
 
     private fun onResult(result: ImageSegmenterResult, input: MPImage) {
         busy.set(false)
-        onMask(result.toHairMask(hairClass))
+        onMask(result.toHairMask(hairClass, softConfidence))
     }
 
     override fun close() {
@@ -82,7 +90,10 @@ class LiveHairSegmenter(
     }
 }
 
-class StillImageHairSegmenter(context: Context) : AutoCloseable {
+class StillImageHairSegmenter(
+    context: Context,
+    private val softConfidence: Boolean = false
+) : AutoCloseable {
 
     private val segmenter: ImageSegmenter? = runCatching {
         val options = ImageSegmenter.ImageSegmenterOptions.builder()
@@ -105,7 +116,7 @@ class StillImageHairSegmenter(context: Context) : AutoCloseable {
 
     fun segment(bitmap: Bitmap): HairMask? {
         val result = segmenter?.segment(BitmapImageBuilder(bitmap).build()) ?: return null
-        return result.toHairMask(hairClass)
+        return result.toHairMask(hairClass, softConfidence)
     }
 
     override fun close() {
@@ -119,7 +130,12 @@ private fun resolveHairClass(segmenter: ImageSegmenter): Int {
     return if (index >= 0) index else HairLengthClassifier.HAIR_CLASS
 }
 
-private fun ImageSegmenterResult.toHairMask(hairClass: Int): HairMask? {
+/**
+ * @param softConfidence read the hair confidence mask as the floats MediaPipe produces, when the
+ *   8-bit read below comes back empty (it can't convert a float mask, leaving only the hard
+ *   category mask). Needed wherever the edge of the hair has to fade rather than cut.
+ */
+private fun ImageSegmenterResult.toHairMask(hairClass: Int, softConfidence: Boolean): HairMask? {
     val image = categoryMask().orElse(null) ?: return null
     val buffer = runCatching { ByteBufferExtractor.extract(image) }.getOrNull() ?: return null
     buffer.rewind()
@@ -138,7 +154,11 @@ private fun ImageSegmenterResult.toHairMask(hairClass: Int): HairMask? {
             val confRemaining = confBuffer.remaining().coerceAtLeast(0)
             if (confRemaining <= 0) return@runCatching null
             ByteArray(confRemaining).also { confBuffer.get(it) }
-        }.getOrNull()
+        }.getOrNull() ?: if (softConfidence) runCatching {
+            // asReadOnlyBuffer() resets the byte order, so it has to be set again before reading floats.
+            val floats = ByteBufferExtractor.extract(hairConfidence).order(ByteOrder.nativeOrder()).asFloatBuffer()
+            ByteArray(floats.remaining()) { (floats.get(it) * 255f).toInt().coerceIn(0, 255).toByte() }
+        }.getOrNull() else null
     }
 
     return HairMask(bytes, image.width, image.height, hairClass, confidence)

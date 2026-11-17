@@ -24,6 +24,29 @@ data class Consultation(
  */
 const val SAVED_LOOK_ID_PREFIX = "look-"
 
+/**
+ * A saved look from the Color Studio: "look-color-<shadeId>-<uuid>".
+ * shortcut: the shade rides in the id because a consultation has no field for it; add a column
+ * once a color look needs more than its shade's name.
+ */
+const val COLOR_LOOK_ID_PREFIX = SAVED_LOOK_ID_PREFIX + "color-"
+
+/** The shade id of a color look, or null for any other consultation. Shade ids never contain '-'. */
+val Consultation.colorLookShadeId: String?
+    get() = id.takeIf { it.startsWith(COLOR_LOOK_ID_PREFIX) }?.removePrefix(COLOR_LOOK_ID_PREFIX)?.substringBefore('-')
+
+/**
+ * A favorited AR try-on filter: "look-ar-<userId>-<haircutId>", one per user and style, so
+ * hearting twice can't duplicate it. It has no picture; the style is its selected haircut.
+ * shortcut: rides the saved-looks rows (and their Firestore collection) so it needs no table,
+ * which would wipe local data under the destructive migration; give it one if it grows fields.
+ */
+const val AR_FILTER_ID_PREFIX = SAVED_LOOK_ID_PREFIX + "ar-"
+
+fun arFilterFavoriteId(userId: String, haircutId: String): String = "$AR_FILTER_ID_PREFIX$userId-$haircutId"
+
+val Consultation.isArFilter: Boolean get() = id.startsWith(AR_FILTER_ID_PREFIX)
+
 data class ChatMessage(
     val id: String,
     val sender: ChatSender,

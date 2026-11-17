@@ -1,6 +1,14 @@
 package com.hairconsultant.app.ui.navigation
 
 import android.app.Activity
+import android.net.Uri
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -15,11 +23,14 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.hairconsultant.app.di.AppContainer
 import com.hairconsultant.app.di.ViewModelFactory
 import com.hairconsultant.app.ui.auth.LoginScreen
@@ -29,11 +40,14 @@ import com.hairconsultant.app.ui.auth.RegisterViewModel
 import com.hairconsultant.app.ui.components.HairConsultantBottomBar
 import com.hairconsultant.app.ui.facescan.FaceScanScreen
 import com.hairconsultant.app.ui.facescan.FaceScanViewModel
+import com.hairconsultant.app.ui.haircolor.ColorStudioScreen
+import com.hairconsultant.app.ui.haircolor.ColorStudioViewModel
 import com.hairconsultant.app.ui.home.HomeScreen
 import com.hairconsultant.app.ui.home.HomeViewModel
 import com.hairconsultant.app.ui.imageupload.ImageUploadScreen
 import com.hairconsultant.app.ui.imageupload.ImageUploadViewModel
 import com.hairconsultant.app.ui.profile.ProfileScreen
+import com.hairconsultant.app.ui.theme.EaseOutStrong
 import com.hairconsultant.app.ui.theme.ImageWellDark
 import com.hairconsultant.app.ui.profile.ProfileViewModel
 
@@ -112,7 +126,48 @@ fun HairConsultantNavHost(container: AppContainer) {
                     onBackToLoginClick = { navController.popBackStack() }
                 )
             }
-            composable(Screen.Home.route) {
+            // Going to and from the Color Studio is quicker than the default tab cross-fade: its
+            // camera only starts once the transition has finished, so a slow one is a black screen.
+            val openColorStudio = { photo: Uri? -> navController.navigate(Screen.ColorStudio.route(photo)) }
+            val exitToStudio: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition? = {
+                if (targetState.destination.route == Screen.ColorStudio.route) fadeOut(tween(220)) else null
+            }
+            val returnFromStudio: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition? = {
+                if (initialState.destination.route == Screen.ColorStudio.route) fadeIn(tween(160)) else null
+            }
+
+            composable(
+                route = Screen.ColorStudio.route,
+                arguments = listOf(
+                    navArgument(Screen.ColorStudio.PHOTO_ARG) {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                ),
+                enterTransition = {
+                    fadeIn(tween(220, easing = EaseOutStrong)) + scaleIn(tween(220, easing = EaseOutStrong), initialScale = 0.96f)
+                },
+                exitTransition = { fadeOut(tween(160)) },
+                popExitTransition = { fadeOut(tween(160)) }
+            ) { entry ->
+                val viewModel: ColorStudioViewModel = viewModel(factory = ViewModelFactory(container) { c ->
+                    ColorStudioViewModel(c.authRepository, c.consultationRepository, c.mediaStorageRepository)
+                })
+                ColorStudioScreen(
+                    viewModel = viewModel,
+                    photoUri = entry.arguments?.getString(Screen.ColorStudio.PHOTO_ARG)?.let(Uri::parse),
+                    onClose = { navController.popBackStack() },
+                    onViewLooks = {
+                        navController.navigate(Screen.Profile.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+            }
+            composable(Screen.Home.route, exitTransition = exitToStudio, popEnterTransition = returnFromStudio) {
                 val viewModel: HomeViewModel = viewModel(factory = ViewModelFactory(container) { c ->
                     HomeViewModel(
                         c.haircutRepository,
@@ -124,9 +179,9 @@ fun HairConsultantNavHost(container: AppContainer) {
                     )
                 })
                 LaunchedEffect(Unit) { viewModel.activateChat() }
-                HomeScreen(viewModel = viewModel)
+                HomeScreen(viewModel = viewModel, onOpenColorStudio = { openColorStudio(null) })
             }
-            composable(Screen.FaceScan.route) {
+            composable(Screen.FaceScan.route, exitTransition = exitToStudio, popEnterTransition = returnFromStudio) {
                 val viewModel: FaceScanViewModel = viewModel(factory = ViewModelFactory(container) { c ->
                     FaceScanViewModel(
                         c.faceAnalyzer,
@@ -140,9 +195,9 @@ fun HairConsultantNavHost(container: AppContainer) {
                     )
                 })
                 LaunchedEffect(Unit) { viewModel.activateChat() }
-                FaceScanScreen(viewModel = viewModel)
+                FaceScanScreen(viewModel = viewModel, onOpenColorStudio = { openColorStudio(null) })
             }
-            composable(Screen.ImageUpload.route) {
+            composable(Screen.ImageUpload.route, exitTransition = exitToStudio, popEnterTransition = returnFromStudio) {
                 val viewModel: ImageUploadViewModel = viewModel(factory = ViewModelFactory(container) { c ->
                     ImageUploadViewModel(
                         c.faceAnalyzer,
@@ -157,7 +212,7 @@ fun HairConsultantNavHost(container: AppContainer) {
                     )
                 })
                 LaunchedEffect(Unit) { viewModel.activateChat() }
-                ImageUploadScreen(viewModel = viewModel)
+                ImageUploadScreen(viewModel = viewModel, onOpenColorStudio = openColorStudio)
             }
             composable(Screen.Profile.route) {
                 val viewModel: ProfileViewModel = viewModel(factory = ViewModelFactory(container) { c ->

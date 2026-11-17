@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -64,6 +65,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -73,9 +75,18 @@ import coil.compose.AsyncImage
 import com.hairconsultant.app.domain.model.Consultation
 import com.hairconsultant.app.domain.model.ConsultationSource
 import com.hairconsultant.app.domain.model.HairLength
+import com.hairconsultant.app.domain.model.Haircut
+import com.hairconsultant.app.domain.model.ScanResult
 import com.hairconsultant.app.domain.model.User
+import com.hairconsultant.app.domain.model.colorLookShadeId
+import com.hairconsultant.app.domain.model.isArFilter
+import com.hairconsultant.app.ui.components.FaceFitTiles
+import com.hairconsultant.app.ui.components.OverlayIconButton
 import com.hairconsultant.app.ui.components.StarRatingBar
 import com.hairconsultant.app.ui.components.StatusBarScrim
+import com.hairconsultant.app.ui.deepar.DeepArCurtainsTestScreen
+import com.hairconsultant.app.ui.facescan.HairstyleArCatalog
+import com.hairconsultant.app.ui.haircolor.HairShades
 import com.hairconsultant.app.ui.theme.LocalShopColors
 import java.time.Instant
 import java.time.ZoneId
@@ -90,6 +101,14 @@ fun ProfileScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var openLook by remember { mutableStateOf<Consultation?>(null) }
+    var tryOnFilter by remember { mutableStateOf<Haircut?>(null) }
+    // A filter whose style or AR file the dashboard has since removed can't be tried on, so it isn't shown.
+    val filters = uiState.favorites.mapNotNull { favorite ->
+        favorite.selectedHaircut?.takeIf { favorite.isArFilter && HairstyleArCatalog.shouldUseDeepAr(it) }?.let { favorite to it }
+    }
+    val looks = uiState.favorites.filterNot { it.isArFilter }
+    // Newest first in both lists; a saved look still carries its session's scan once History is cleared.
+    val latestScan = (uiState.history.firstOrNull() ?: looks.firstOrNull())?.scanResult
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -100,8 +119,9 @@ fun ProfileScreen(
             item {
                 ProfileHeader(
                     user = uiState.user,
+                    scan = latestScan,
                     historyCount = uiState.history.size,
-                    favoritesCount = uiState.favorites.size,
+                    favoritesCount = filters.size + looks.size,
                     selectedTab = uiState.selectedTab,
                     onTabSelected = viewModel::onTabSelected,
                     isDarkTheme = isDarkTheme,
@@ -116,16 +136,38 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
-            val list = if (uiState.selectedTab == ProfileTab.HISTORY) uiState.history else uiState.favorites
-            if (list.isEmpty()) {
+            val isHistory = uiState.selectedTab == ProfileTab.HISTORY
+            if (if (isHistory) uiState.history.isEmpty() else filters.isEmpty() && looks.isEmpty()) {
                 item { EmptyHistoryCard(selectedTab = uiState.selectedTab) }
-            } else if (uiState.selectedTab == ProfileTab.HISTORY) {
-                items(list, key = { it.id }) { consultation ->
+            } else if (isHistory) {
+                items(uiState.history, key = { it.id }) { consultation ->
                     ConsultationRow(consultation = consultation, onToggleFavorite = { viewModel.toggleFavorite(consultation) })
                 }
             } else {
+                if (filters.isNotEmpty()) {
+                    item(key = "filters") {
+                        SectionHead("Try-on filters", filters.size)
+                        LazyRow(
+                            modifier = Modifier.padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp)
+                        ) {
+                            items(filters, key = { it.first.id }) { (favorite, haircut) ->
+                                FilterTile(
+                                    haircut = haircut,
+                                    onTryOn = { tryOnFilter = haircut },
+                                    onRemove = { viewModel.toggleFavorite(favorite) }
+                                )
+                            }
+                        }
+                    }
+                    // The grid only needs naming once it shares the tab with the shelf.
+                    if (looks.isNotEmpty()) {
+                        item(key = "looks-head") { SectionHead("Saved looks", looks.size, modifier = Modifier.padding(top = 10.dp)) }
+                    }
+                }
                 // Two to a row, so looks sit side by side for comparing.
-                items(list.chunked(2), key = { row -> row.first().id }) { row ->
+                items(looks.chunked(2), key = { row -> row.first().id }) { row ->
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -158,13 +200,77 @@ fun ProfileScreen(
     }
 
     openLook?.let { look -> LookDialog(consultation = look, onDismiss = { openLook = null }) }
+    // Downloads the effect if needed and opens the live try-on, the same way Home does.
+    tryOnFilter?.let { haircut -> DeepArCurtainsTestScreen(haircut = haircut, onClose = { tryOnFilter = null }) }
 }
 
-/** The shop-front header (black, grey in dark mode): who's signed in, their counts, the overflow menu, and the History / Favorites tabs. */
+/** Names a group inside the Favorites tab, with how many it holds, like the catalog's section heads on Home. */
+@Composable
+private fun SectionHead(title: String, count: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.Bottom
+    ) {
+        Text(
+            text = title.uppercase(),
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.weight(1f).semantics { heading() }
+        )
+        Text(
+            text = count.toString(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 3.dp)
+        )
+    }
+}
+
+/** A favorited AR filter: tap the tile to put it back on your face, the heart to drop it. */
+@Composable
+private fun FilterTile(haircut: Haircut, onTryOn: () -> Unit, onRemove: () -> Unit) {
+    val shop = LocalShopColors.current
+    Card(
+        onClick = onTryOn,
+        modifier = Modifier.width(124.dp),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Box {
+            AsyncImage(
+                model = haircut.imageUrl,
+                contentDescription = null,
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f).background(shop.imageWell),
+                contentScale = ContentScale.Crop
+            )
+            // On the dark well in both themes, so the camera screens' overlay button, not the ink heart.
+            OverlayIconButton(
+                icon = Icons.Filled.Favorite,
+                contentDescription = "Remove ${haircut.name} from favorites",
+                onClick = onRemove,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
+        }
+        Text(
+            text = haircut.name,
+            style = MaterialTheme.typography.titleSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+        )
+    }
+}
+
+/**
+ * The shop-front header (black, grey in dark mode) as the shop's card on this client: who they are,
+ * the face shape and hair their latest scan measured, the overflow menu, and the History /
+ * Favorites tabs carrying their counts.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProfileHeader(
     user: User?,
+    scan: ScanResult?,
     historyCount: Int,
     favoritesCount: Int,
     selectedTab: ProfileTab,
@@ -256,14 +362,37 @@ private fun ProfileHeader(
         }
 
         Row(
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            StatTile(value = historyCount, label = "Consultations", modifier = Modifier.weight(1f))
-            StatTile(value = favoritesCount, label = "Favorites", modifier = Modifier.weight(1f))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = scan?.let { "${it.faceShape.displayName} face".uppercase() } ?: "NO SCAN YET",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = shop.onShell
+                )
+                Text(
+                    text = scan?.let { if (it.hairLength == HairLength.BALD) hairSummary(it) else "${hairSummary(it)} hair" }
+                        ?: "Scan your face to see which cuts suit you",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = shop.onShellMuted
+                )
+            }
+            // The same tiles as every haircut card, so the user learns which one to look for. The line beside them already says the shape.
+            FaceFitTiles(
+                suits = listOfNotNull(scan?.faceShape),
+                userShape = scan?.faceShape,
+                modifier = Modifier.clearAndSetSemantics { },
+                onShell = true,
+                large = true
+            )
         }
 
-        val tabs = listOf(ProfileTab.HISTORY to "History", ProfileTab.FAVORITES to "Favorites")
+        val tabs = listOf(
+            Triple(ProfileTab.HISTORY, "History", historyCount),
+            Triple(ProfileTab.FAVORITES, "Favorites", favoritesCount)
+        )
         val selectedIndex = tabs.indexOfFirst { it.first == selectedTab }.coerceAtLeast(0)
         PrimaryTabRow(
             selectedTabIndex = selectedIndex,
@@ -278,29 +407,21 @@ private fun ProfileHeader(
             },
             divider = {}
         ) {
-            tabs.forEachIndexed { index, (tab, label) ->
+            tabs.forEachIndexed { index, (tab, label, count) ->
                 Tab(
                     selected = index == selectedIndex,
                     onClick = { onTabSelected(tab) },
-                    text = { Text(label, style = MaterialTheme.typography.labelLarge) },
+                    text = {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(label, style = MaterialTheme.typography.labelLarge)
+                            Text(count.toString(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        }
+                    },
                     selectedContentColor = shop.onShell,
                     unselectedContentColor = shop.onShellMuted
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun StatTile(value: Int, label: String, modifier: Modifier = Modifier) {
-    val shop = LocalShopColors.current
-    Column(
-        modifier = modifier
-            .border(1.5.dp, shop.shellLine, MaterialTheme.shapes.small)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-    ) {
-        Text(value.toString(), style = MaterialTheme.typography.headlineMedium, color = shop.onShell)
-        Text(label, style = MaterialTheme.typography.bodySmall, color = shop.onShellMuted)
     }
 }
 
@@ -314,18 +435,13 @@ private fun initials(user: User?): String {
     }.uppercase()
 }
 
-private fun headerSubtitle(user: User?): String {
-    val preferences = listOfNotNull(
-        user?.preferredHairLength?.displayName,
-        user?.preferredHairTexture?.displayName,
-        user?.preferredTreatment?.takeIf { it.name != "NONE" }?.displayName
-    )
-    val joinDate = user?.createdAtEpochMillis?.takeIf { it > 0 }?.let(::formatJoinDate)
-    return listOfNotNull(
-        preferences.takeIf { it.isNotEmpty() }?.joinToString(" · "),
-        joinDate?.let { "Since $it" }
-    ).joinToString(" · ").ifBlank { user?.email.orEmpty() }
-}
+private fun headerSubtitle(user: User?): String =
+    user?.createdAtEpochMillis?.takeIf { it > 0 }?.let { "Since ${formatJoinDate(it)}" } ?: user?.email.orEmpty()
+
+/** "Short, straight", or just "Bald": hair as a scan measured it. */
+private fun hairSummary(scan: ScanResult): String =
+    if (scan.hairLength == HairLength.BALD) scan.hairLength.displayName
+    else "${scan.hairLength.displayName}, ${scan.hairTexture.displayName.lowercase()}"
 
 private fun formatJoinDate(epochMillis: Long): String =
     Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault())
@@ -357,7 +473,7 @@ private fun EmptyHistoryCard(selectedTab: ProfileTab) {
                 text = if (selectedTab == ProfileTab.HISTORY) {
                     "No consultations yet — try a face scan or upload a photo."
                 } else {
-                    "No favorites yet — tap Save look on a preview in Upload, or the heart on a consultation."
+                    "No favorites yet — tap the heart in an AR try-on, Save look on a preview in Upload, or the heart on a consultation."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -435,7 +551,9 @@ private fun ConsultationRow(consultation: Consultation, onToggleFavorite: () -> 
 /** What a favorite shows: the user's own generated preview when there is one, else the style, else their photo. */
 private fun Consultation.lookImage(): String? = resultImageUrl ?: selectedHaircut?.imageUrl ?: sourceImageUrl
 
-private fun Consultation.lookTitle(): String = selectedHaircut?.name ?: "${scanResult.faceShape.displayName} scan"
+private fun Consultation.lookTitle(): String = selectedHaircut?.name
+    ?: HairShades.byId(colorLookShadeId)?.let { "${it.name} hair color" }
+    ?: "${scanResult.faceShape.displayName} scan"
 
 /** One favorite in the comparison grid: the whole picture, never cropped, since the hair is the point. */
 @Composable
@@ -538,8 +656,7 @@ private fun consultationDetail(consultation: Consultation): String {
         ConsultationSource.IMAGE_UPLOAD -> "Upload"
     }
     val scan = consultation.scanResult
-    val hair = if (scan.hairLength == HairLength.BALD) scan.hairLength.displayName else "${scan.hairLength.displayName}, ${scan.hairTexture.displayName.lowercase()}"
-    return "$source · ${scan.faceShape.displayName} face · $hair"
+    return "$source · ${scan.faceShape.displayName} face · ${hairSummary(scan)}"
 }
 
 /** Solid in the fit mark once a stage was reached, dashed and muted when it wasn't: the state reads without colour too. */

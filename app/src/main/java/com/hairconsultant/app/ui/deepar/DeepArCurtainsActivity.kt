@@ -10,9 +10,15 @@ import android.view.SurfaceView
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.hairconsultant.app.HairConsultantApp
+import com.hairconsultant.app.R
+import com.hairconsultant.app.domain.model.arFilterFavoriteId
+import kotlinx.coroutines.launch
 
 /**
  * Full-screen DeepAR Activity for catalog hairstyle `.deepar` effects.
@@ -101,12 +107,57 @@ class DeepArCurtainsActivity : ComponentActivity() {
         }
         root.addView(close)
 
+        addFavoriteButton(root, density, pad)
+
         setContentView(root)
 
         when {
             ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
                 PackageManager.PERMISSION_GRANTED -> startSession()
             else -> cameraPermission.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    /** The heart that keeps this filter in Profile favorites, mirroring the close button. Absent when signed out or launched without a catalog style. */
+    private fun addFavoriteButton(root: FrameLayout, density: Float, pad: Int) {
+        val haircutId = intent.getStringExtra(EXTRA_HAIRCUT_ID) ?: return
+        val container = (application as HairConsultantApp).container
+        val uid = container.authRepository.currentUser.value?.uid ?: return
+        val repository = container.consultationRepository
+        val favoriteId = arFilterFavoriteId(uid, haircutId)
+        var saved = false
+
+        val heart = android.widget.ImageButton(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                (48 * density).toInt(),
+                (48 * density).toInt()
+            ).apply {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.END
+                setMargins(0, pad, pad, 0)
+            }
+            setBackgroundColor(0xCCFFFFFF.toInt())
+            setOnClickListener {
+                val remove = saved
+                lifecycleScope.launch {
+                    if (remove) repository.removeSavedLook(favoriteId) else repository.saveArFilter(uid, haircutId)
+                    Toast.makeText(
+                        this@DeepArCurtainsActivity,
+                        if (remove) "Removed from favorites" else "Saved to your Profile favorites",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+        root.addView(heart)
+
+        // Read from storage, so the heart also reflects a filter removed in Profile.
+        lifecycleScope.launch {
+            repository.observeFavorites(uid).collect { favorites ->
+                saved = favorites.any { it.id == favoriteId }
+                heart.setImageResource(if (saved) R.drawable.ic_favorite else R.drawable.ic_favorite_border)
+                heart.contentDescription =
+                    if (saved) "Remove $displayName from favorites" else "Save $displayName to favorites"
+            }
         }
     }
 
@@ -154,14 +205,18 @@ class DeepArCurtainsActivity : ComponentActivity() {
         private const val TAG = "DeepArCurtainsActivity"
         const val EXTRA_EFFECT_ASSET = "extra_effect_asset"
         const val EXTRA_DISPLAY_NAME = "extra_display_name"
+        const val EXTRA_HAIRCUT_ID = "extra_haircut_id"
 
+        /** [haircutId] is the catalog style being tried on; with it the screen offers the favorite heart. */
         fun intent(
             context: Context,
             effectAssetPath: String,
-            displayName: String
+            displayName: String,
+            haircutId: String? = null
         ): Intent = Intent(context, DeepArCurtainsActivity::class.java).apply {
             putExtra(EXTRA_EFFECT_ASSET, effectAssetPath)
             putExtra(EXTRA_DISPLAY_NAME, displayName)
+            putExtra(EXTRA_HAIRCUT_ID, haircutId)
         }
     }
 }

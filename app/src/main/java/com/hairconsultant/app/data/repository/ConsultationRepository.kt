@@ -7,6 +7,8 @@ import com.hairconsultant.app.data.local.entity.ConsultationEntity
 import com.hairconsultant.app.data.local.entity.toDomain
 import com.hairconsultant.app.data.remote.firebase.ConsultationRemoteRepository
 import com.hairconsultant.app.data.remote.firebase.RemoteSavedLook
+import com.hairconsultant.app.domain.model.AR_FILTER_ID_PREFIX
+import com.hairconsultant.app.domain.model.arFilterFavoriteId
 import com.hairconsultant.app.domain.model.Consultation
 import com.hairconsultant.app.domain.model.ConsultationSource
 import com.hairconsultant.app.domain.model.FaceShape
@@ -24,6 +26,9 @@ interface ConsultationRepository {
 
     /** Deletes one saved look ([Consultation.isSavedLook]); un-favoriting it would leave a row no screen shows. */
     suspend fun removeSavedLook(lookId: String)
+
+    /** Favorites an AR try-on filter ([arFilterFavoriteId]); un-favorite it with [removeSavedLook]. */
+    suspend fun saveArFilter(userId: String, haircutId: String)
 
     /**
      * Copies the account's saved looks from Firestore into this phone's Favorites, e.g. after a
@@ -71,6 +76,26 @@ class ConsultationRepositoryImpl(
             .onFailure { Log.w(TAG, "Couldn't delete look $lookId from Firestore", it) }
     }
 
+    override suspend fun saveArFilter(userId: String, haircutId: String) {
+        // The scan fields are placeholders the row can't go without; a filter never shows them.
+        val entity = ConsultationEntity(
+            id = arFilterFavoriteId(userId, haircutId),
+            userId = userId,
+            source = ConsultationSource.FACE_SCAN.name,
+            faceShape = FaceShape.OVAL.name,
+            hairLength = HairLength.MEDIUM.name,
+            hairTexture = HairTexture.STRAIGHT.name,
+            selectedHaircutId = haircutId,
+            sourceImageUrl = null,
+            resultImageUrl = null,
+            isFavorite = true,
+            createdAtEpochMillis = System.currentTimeMillis()
+        )
+        consultationDao.upsert(entity)
+        runCatching { remote.saveLook(RemoteSavedLook(entity.toDomain(haircut = null), haircutId)) }
+            .onFailure { Log.w(TAG, "Couldn't save AR filter ${entity.id} to Firestore", it) }
+    }
+
     /**
      * shortcut: adds what Firestore has and never removes, so a look deleted on one phone stays
      * on another until it's removed there too; make Firestore authoritative if that matters.
@@ -83,7 +108,10 @@ class ConsultationRepositoryImpl(
         // Nothing backed up yet but looks on the phone: they were saved before the account had
         // a backup (an older build, or before the savedLooks rules were deployed), so send them up.
         if (looks.isNotEmpty()) return
-        consultationDao.savedLooks(userId).filter { it.resultImageUrl.isRemote() }.forEach { entity ->
+        // AR filters have no picture to wait for, so they always qualify.
+        consultationDao.savedLooks(userId).filter {
+            it.resultImageUrl.isRemote() || it.id.startsWith(AR_FILTER_ID_PREFIX)
+        }.forEach { entity ->
             runCatching { remote.saveLook(RemoteSavedLook(entity.toDomain(haircut = null), entity.selectedHaircutId)) }
                 .onFailure { Log.w(TAG, "Couldn't back up look ${entity.id} to Firestore", it) }
         }

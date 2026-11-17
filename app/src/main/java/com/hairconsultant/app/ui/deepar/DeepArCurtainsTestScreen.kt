@@ -29,7 +29,7 @@ fun DeepArCurtainsTestScreen(
         }
         if (effect != null) {
             context.startActivity(
-                DeepArCurtainsActivity.intent(context, effect, displayName)
+                DeepArCurtainsActivity.intent(context, effect, displayName, haircut?.id)
             )
         } else {
             Toast.makeText(

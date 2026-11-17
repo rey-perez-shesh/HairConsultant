@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,6 +54,7 @@ import com.hairconsultant.app.ui.chatbot.ChatBotSheet
 import com.hairconsultant.app.ui.chatbot.rememberChatBotSheetState
 import com.hairconsultant.app.ui.components.ChatIconButton
 import com.hairconsultant.app.ui.components.OverlayButton
+import com.hairconsultant.app.ui.components.OverlayIconButton
 import com.hairconsultant.app.ui.components.StatusBarScrim
 import com.hairconsultant.app.ui.facescan.TryOnStrip
 import com.hairconsultant.app.ui.theme.CameraScrim
@@ -62,7 +64,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ImageUploadScreen(viewModel: ImageUploadViewModel) {
+fun ImageUploadScreen(viewModel: ImageUploadViewModel, onOpenColorStudio: (Uri) -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
     val chatState by viewModel.chatState.collectAsState()
     val lookSaved by viewModel.isLookSaved.collectAsState()
@@ -130,6 +132,16 @@ fun ImageUploadScreen(viewModel: ImageUploadViewModel) {
                     OverlayButton(text = "Rescan", icon = Icons.Filled.Refresh, onClick = viewModel::rescan)
                 }
                 Box(modifier = Modifier.weight(1f))
+                // The user's own picture only (their photo, or the generated cut on it), never the
+                // catalog's reference photo shown when a generation fails.
+                val colorUri = uiState.generatedImageUri ?: uiState.sourceImageUri
+                if (colorUri != null && !uiState.isGenerating) {
+                    OverlayIconButton(
+                        icon = Icons.Filled.Palette,
+                        contentDescription = "Try a hair color on this photo",
+                        onClick = { onOpenColorStudio(colorUri) }
+                    )
+                }
                 ChatIconButton(onClick = openChat, onScrim = true)
             }
 

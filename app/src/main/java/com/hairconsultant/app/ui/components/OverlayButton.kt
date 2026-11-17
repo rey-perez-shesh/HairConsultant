@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,5 +29,17 @@ fun OverlayButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
             Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
         }
         Text(text, modifier = if (icon != null) Modifier.padding(start = 6.dp) else Modifier)
+    }
+}
+
+/** [OverlayButton] without a label, for a top bar that has no room for one; [contentDescription] stands in for it. */
+@Composable
+fun OverlayIconButton(icon: ImageVector, contentDescription: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier,
+        colors = IconButtonDefaults.iconButtonColors(containerColor = CameraScrim, contentColor = OnShell)
+    ) {
+        Icon(icon, contentDescription = contentDescription)
     }
 }

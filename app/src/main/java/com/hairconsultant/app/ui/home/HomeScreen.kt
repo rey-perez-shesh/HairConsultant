@@ -2,6 +2,7 @@ package com.hairconsultant.app.ui.home
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,14 +13,19 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -49,11 +56,12 @@ import com.hairconsultant.app.ui.components.FilterDropdown
 import com.hairconsultant.app.ui.components.HaircutDetailDialog
 import com.hairconsultant.app.ui.deepar.DeepArCurtainsActivity
 import com.hairconsultant.app.ui.facescan.HairstyleArCatalog
+import com.hairconsultant.app.ui.haircolor.HairShades
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(viewModel: HomeViewModel) {
+fun HomeScreen(viewModel: HomeViewModel, onOpenColorStudio: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
     val chatState by viewModel.chatState.collectAsState()
     val sheetState = rememberChatBotSheetState()
@@ -70,6 +78,7 @@ fun HomeScreen(viewModel: HomeViewModel) {
                 verticalArrangement = Arrangement.spacedBy(22.dp)
             ) {
                 item { HomeHeader(userFaceShape = uiState.userFaceShape) }
+                item { HairColorTile(onClick = onOpenColorStudio) }
                 item {
                     CatalogFilterRow(
                         uiState = uiState,
@@ -132,7 +141,7 @@ fun HomeScreen(viewModel: HomeViewModel) {
                 val effect = HairstyleArCatalog.resolveDeepArEffect(context, haircut)
                 if (effect != null) {
                     context.startActivity(
-                        DeepArCurtainsActivity.intent(context, effect, haircut.name)
+                        DeepArCurtainsActivity.intent(context, effect, haircut.name, haircut.id)
                     )
                 } else {
                     Toast.makeText(context, "Couldn't download this try-on — check your connection", Toast.LENGTH_SHORT).show()
@@ -190,6 +199,53 @@ private fun HomeHeader(userFaceShape: FaceShape?) {
         }
     }
 }
+
+/**
+ * The way into the Color Studio, which has no tab of its own: a plate in the shell's color with a
+ * few of the shades on it. Never oxblood; that stays on the chat button.
+ */
+@Composable
+private fun HairColorTile(onClick: () -> Unit) {
+    val shop = LocalShopColors.current
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = shop.shell
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 10.dp, top = 14.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("TRY A HAIR COLOR", style = MaterialTheme.typography.titleLarge, color = shop.onShell)
+                Text(
+                    "See a new shade on your own hair",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = shop.onShellMuted
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TILE_SHADE_IDS.mapNotNull(HairShades::byId).forEach { shade ->
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .background(Color(shade.argb), MaterialTheme.shapes.extraSmall)
+                            .border(1.dp, shop.shellLine, MaterialTheme.shapes.extraSmall)
+                    )
+                }
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = shop.onShellMuted
+            )
+        }
+    }
+}
+
+private val TILE_SHADE_IDS = listOf("copper", "golden_blonde", "rose", "blue")
 
 /**
  * Home defaults to the signed-in user's gender (masculine/unisex or feminine/unisex styles); these
