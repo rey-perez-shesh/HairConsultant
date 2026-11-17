@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hairconsultant.app.data.analysis.FaceAnalyzer
 import com.hairconsultant.app.data.analysis.NoFaceDetectedException
+import com.hairconsultant.app.data.local.ScanPhotoStore
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
 import com.hairconsultant.app.data.remote.firebase.MediaStorageRepository
 import com.hairconsultant.app.data.recommendation.HairstyleRecommender
@@ -12,8 +13,11 @@ import com.hairconsultant.app.data.remote.gemini.ExtractedPreferences
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.data.remote.gemini.asksToSeeHairstyles
 import com.hairconsultant.app.data.remote.gemini.GeminiImageRepository
+import com.hairconsultant.app.data.remote.gemini.describeColoringForChatContext
 import com.hairconsultant.app.data.remote.gemini.describeForChatContext
 import com.hairconsultant.app.data.remote.gemini.haircutsNamedIn
+import com.hairconsultant.app.data.remote.gemini.skinScanSentence
+import com.hairconsultant.app.data.remote.gemini.unsureSentence
 import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.UserRepository
 import com.hairconsultant.app.domain.model.Consultation
@@ -78,7 +82,8 @@ class ImageUploadViewModel(
     private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
     private val consultationRepository: ConsultationRepository,
-    private val mediaStorageRepository: MediaStorageRepository
+    private val mediaStorageRepository: MediaStorageRepository,
+    scanPhotoStore: ScanPhotoStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ImageUploadUiState())
@@ -97,6 +102,14 @@ class ImageUploadViewModel(
         }
     ) { lookId, favorites -> lookId != null && favorites.any { it.id == lookId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /** The signed-in user's latest Face Scan frame, offered as a photo; null until they've scanned. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val scanPhotoUri: StateFlow<Uri?> = authRepository.currentUser.flatMapLatest { user ->
+        user?.let { scanPhotoStore.observe(it.uid) } ?: flowOf(null)
+    }
+        .map { file -> file?.let(Uri::fromFile) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** Claims the shared chatbot's next reply whenever Image Upload becomes the active screen. */
     fun activateChat() {
@@ -128,8 +141,11 @@ class ImageUploadViewModel(
                 _uiState.update { it.copy(stage = ImageUploadStage.CONFIRM_RESULT, scanResult = result) }
                 chatBot.pushBotMessage(
                     "I see a ${result.faceShape.displayName} face shape" +
-                        hairScanPhrase(result) +
-                        ". Want to see hairstyles that fit you right away, or talk it through with me first? " +
+                        hairScanPhrase(result) + "." +
+                        (result.skinScanSentence()?.let { " $it" } ?: "") +
+                        (result.analysisNote?.let { " $it" } ?: "") +
+                        (result.unsureSentence(FIX_SCAN_LABEL)?.let { " $it" } ?: "") +
+                        " Want to see hairstyles that fit you right away, or talk it through with me first? " +
                         "If I got anything wrong, tap \"$FIX_SCAN_LABEL\".",
                     quickReplies = listOf(CONFIRM_LABEL, CONSULT_LABEL, FIX_SCAN_LABEL)
                 )
@@ -213,6 +229,7 @@ class ImageUploadViewModel(
             (state.desiredTexture ?: scan?.hairTexture)?.let { append("Hair texture: ${it.displayName}. ") }
             state.desiredTreatment?.takeIf { it != TreatmentPreference.NONE }
                 ?.let { append("Planned treatment: ${it.displayName}. ") }
+            scan?.describeColoringForChatContext()?.let { append("\n").append(it) }
             val gender = profileGender()
             gender.describeForChatContext()?.let { append("\n").append(it) }
             if (scan != null) {

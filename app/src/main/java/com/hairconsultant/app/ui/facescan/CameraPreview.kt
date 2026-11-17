@@ -1,10 +1,16 @@
 ﻿package com.hairconsultant.app.ui.facescan
 
+import android.hardware.camera2.CaptureRequest
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.widget.FrameLayout
+import androidx.annotation.OptIn
+import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.CaptureRequestOptions
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -47,6 +53,8 @@ fun CameraPreview(
     suppressOverlayDrawing: Boolean = false,
     faceArAttachment: FaceArSceneAttachment? = null,
     cameraEnabled: Boolean = true,
+    /** Holds exposure and white balance still while a scan collects frames, so they all see the same colours. */
+    lockExposure: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -96,6 +104,11 @@ fun CameraPreview(
         } else {
             binder.unbind("cameraEnabled=false")
         }
+        onDispose { }
+    }
+
+    DisposableEffect(lockExposure) {
+        binder.setExposureLocked(lockExposure)
         onDispose { }
     }
 
@@ -204,6 +217,8 @@ private class FaceScanCameraBinder(
     private var boundWithAnalysis = false
     private var boundPreviewOnly = false
     private var lastBindRequestAt = 0L
+    private var camera: Camera? = null
+    private var exposureLocked = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var analysisAttachRunnable: Runnable? = null
@@ -318,7 +333,7 @@ private class FaceScanCameraBinder(
                     }
                 }
             provider.unbindAll()
-            provider.bindToLifecycle(
+            camera = provider.bindToLifecycle(
                 lifecycleOwner,
                 CameraSelector.DEFAULT_FRONT_CAMERA,
                 preview,
@@ -327,6 +342,7 @@ private class FaceScanCameraBinder(
             boundPreviewOnly = true
             boundWithAnalysis = true
             Log.i(TAG, "Full camera bound ($reason)")
+            if (exposureLocked) applyExposureLock()
             if (!landmarker.isReady) {
                 landmarkStore.publishEmpty("Face guide failed to start")
             }
@@ -340,7 +356,28 @@ private class FaceScanCameraBinder(
         }
     }
 
+    fun setExposureLocked(locked: Boolean) {
+        if (exposureLocked == locked) return
+        exposureLocked = locked
+        applyExposureLock()
+    }
+
+    @OptIn(ExperimentalCamera2Interop::class)
+    private fun applyExposureLock() {
+        val control = camera?.cameraControl ?: return
+        runCatching {
+            Camera2CameraControl.from(control).setCaptureRequestOptions(
+                CaptureRequestOptions.Builder()
+                    .setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, exposureLocked)
+                    .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, exposureLocked)
+                    .build()
+            )
+            Log.d(TAG, "Exposure and white balance ${if (exposureLocked) "locked" else "unlocked"}")
+        }.onFailure { Log.w(TAG, "Couldn't change the exposure lock", it) }
+    }
+
     fun unbind(reason: String) {
+        camera = null
         analysisAttachRunnable?.let { mainHandler.removeCallbacks(it) }
         analysisAttachRunnable = null
         pendingBindRunnable?.let { mainHandler.removeCallbacks(it) }

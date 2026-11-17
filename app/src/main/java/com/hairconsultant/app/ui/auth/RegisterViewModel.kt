@@ -86,11 +86,8 @@ class RegisterViewModel(
     private fun validate(state: RegisterUiState): String? = when {
         state.email.isBlank() -> "Please enter your email."
         !EMAIL_REGEX.matches(state.email.trim()) -> "Please enter a valid email address containing \"@\"."
-        state.password.length < 8 -> "Password must be at least 8 characters."
-        !state.password.any { it.isUpperCase() } -> "Password must contain at least one uppercase letter."
-        !state.password.any { it.isLowerCase() } -> "Password must contain at least one lowercase letter."
-        !state.password.any { it.isDigit() } -> "Password must contain at least one number."
-        state.password.none { !it.isLetterOrDigit() } -> "Password must contain at least one special character."
+        passwordRules(state.password).any { !it.met } ->
+            passwordRules(state.password).first { !it.met }.error
         state.password != state.confirmPassword -> "Passwords do not match."
         state.birthdayEpochDay == null -> "Please select your birthday."
         state.birthdayEpochDay > LocalDate.now().toEpochDay() -> "Birthday cannot be in the future."
@@ -102,3 +99,15 @@ class RegisterViewModel(
         val EMAIL_REGEX = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
     }
 }
+
+/** One password requirement: [label] for the live checklist, [error] for the message on submit. */
+data class PasswordRule(val label: String, val error: String, val met: Boolean)
+
+/** The requirements in the order they're reported, so the checklist and the submit check can't disagree. */
+fun passwordRules(password: String): List<PasswordRule> = listOf(
+    PasswordRule("8+ characters", "Password must be at least 8 characters.", password.length >= 8),
+    PasswordRule("Uppercase", "Password must contain at least one uppercase letter.", password.any { it.isUpperCase() }),
+    PasswordRule("Lowercase", "Password must contain at least one lowercase letter.", password.any { it.isLowerCase() }),
+    PasswordRule("Number", "Password must contain at least one number.", password.any { it.isDigit() }),
+    PasswordRule("Symbol", "Password must contain at least one special character.", password.any { !it.isLetterOrDigit() })
+)

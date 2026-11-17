@@ -127,6 +127,7 @@ fun FaceScanScreen(viewModel: FaceScanViewModel, onOpenColorStudio: () -> Unit) 
                 suppressOverlayDrawing = uiState.triedOnHaircut != null,
                 faceArAttachment = faceArAttachment,
                 cameraEnabled = !deepArCameraPaused,
+                lockExposure = uiState.stage == FaceScanStage.ANALYZING,
                 modifier = Modifier.fillMaxSize()
             )
             // Warm the Meshy GLB in the background once suggestions exist (before tap).

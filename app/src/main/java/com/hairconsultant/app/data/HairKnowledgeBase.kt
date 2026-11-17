@@ -5,8 +5,8 @@ package com.hairconsultant.app.data
  * ([com.hairconsultant.app.data.remote.gemini.GeminiChatRepository]) so its suggestions are
  * reasoned from real hairstyling/dermatology guidance instead of a hard-coded decision tree.
  * Covers: face-shape principles, the Andre Walker hair-type system and its care needs, the two
- * chemical treatments this app tracks (rebonding, perming), and lifestyle-fit considerations
- * (maintenance load, climate, workplace norms).
+ * chemical treatments this app tracks (rebonding, perming), lifestyle-fit considerations
+ * (maintenance load, climate, workplace norms), and hair colour by skin undertone and depth.
  *
  * Split into topic-sized [chunks] (rather than one long string) so
  * [com.hairconsultant.app.data.remote.gemini.HairKnowledgeRetriever] can embed and retrieve just
@@ -154,6 +154,48 @@ object HairKnowledgeBase {
                 cleanly-shaped cuts (or long hair simply tied back) as polished with minimal
                 daily effort; more elaborate layering or curl-heavy styles usually need more
                 active daily styling to look intentional rather than undone.
+            """.trimIndent()
+        ),
+        KnowledgeChunk(
+            title = "Hair color: warm undertone",
+            text = """
+                Hair color for a warm skin undertone (golden, peachy or olive cast; gold jewelry
+                flatters; wrist veins look greenish): shades with gold, copper or red in them echo
+                the skin's warmth - Golden Blonde, Dark Blonde, Copper, Auburn, Chestnut, Light
+                Brown. Very ashy or blue-based colors (platinum, silver, blue-black) can make
+                warm skin look sallow or washed out.
+            """.trimIndent()
+        ),
+        KnowledgeChunk(
+            title = "Hair color: cool undertone",
+            text = """
+                Hair color for a cool skin undertone (pink, red or bluish cast; silver jewelry
+                flatters; wrist veins look bluish): ash, icy and blue- or violet-based shades
+                suit it - Jet Black, Soft Black, Dark Brown, Platinum, Silver, and fashion tones
+                like Rose or Purple. Strong golden or orange-copper shades can bring out redness.
+            """.trimIndent()
+        ),
+        KnowledgeChunk(
+            title = "Hair color: neutral undertone",
+            text = """
+                Hair color for a neutral skin undertone (neither clearly golden nor pink; both
+                gold and silver jewelry work): most shades suit it, so choose by the skin's depth
+                and the contrast wanted - soft browns and dark blondes for a natural look, Copper
+                or Platinum when a bolder change is the goal.
+            """.trimIndent()
+        ),
+        KnowledgeChunk(
+            title = "Hair color: skin depth and contrast",
+            text = """
+                Hair color and skin depth: a shade one or two levels from the natural color looks
+                most natural and grows out gently. Very light or fair skin: soft blondes, light
+                browns and coppers; jet black makes a strong, high-contrast look. Medium and tan
+                skin: chestnut, caramel-like light browns, dark blonde and copper highlights;
+                very pale platinum can wash out without toning. Brown and deep skin: rich dark
+                browns and soft black, with warm copper, auburn or burgundy-rose tones for
+                dimension; very light blondes need heavy lifting and can look flat against deep
+                skin unless a bold contrast is the goal. Lightening dark hair several levels
+                needs bleaching and a colorist; going darker is gentler on the hair.
             """.trimIndent()
         )
     )

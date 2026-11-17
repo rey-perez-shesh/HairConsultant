@@ -1,8 +1,84 @@
 package com.hairconsultant.app.data.remote.gemini
 
 import com.hairconsultant.app.domain.model.Gender
+import com.hairconsultant.app.domain.model.HairColor
+import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.Haircut
+import com.hairconsultant.app.domain.model.ScanResult
+import com.hairconsultant.app.domain.model.confidentSkinTone
+import com.hairconsultant.app.domain.model.confidentUndertone
 import com.hairconsultant.app.domain.model.matchingHaircutStyles
+import com.hairconsultant.app.ui.haircolor.HairShades
+
+/** Below this the scan's hair colour isn't stated as a reading. */
+private const val HAIR_COLOR_SURE = 0.5f
+
+/**
+ * The scan's hair colour and skin tone as chat context, for hair-colour advice, or null when the
+ * scan read neither. An unsure undertone comes with the questions to settle it, and colour advice
+ * names the Color Studio's shades so the user can try a suggestion straight away.
+ */
+fun ScanResult.describeColoringForChatContext(): String? {
+    val hair = hairColor.takeIf { it != HairColor.OTHER && hairColorConfidence >= HAIR_COLOR_SURE }
+    val tone = skinTone
+    if (hair == null && tone == null) return null
+    return buildString {
+        hair?.let { append("Current hair color (from the scan): ${it.displayName}. ") }
+        when {
+            tone == null -> Unit
+            confidentSkinTone == null ->
+                append("Skin tone: not read reliably (poor light); if hair color comes up, ask the user to describe their skin tone. ")
+            else -> {
+                append("Skin tone (estimated from the scan's camera): ${tone.displayName}")
+                val sureUndertone = confidentUndertone
+                if (sureUndertone != null) {
+                    append(", ${sureUndertone.displayName.lowercase()} undertone. ")
+                } else {
+                    append(skinUndertone?.let { ", undertone unclear (leaning ${it.displayName.lowercase()}). " } ?: ". ")
+                    append(
+                        "Before recommending hair colors that depend on undertone, confirm it: ask whether gold or " +
+                            "silver jewelry flatters them more, or whether the veins on their wrist look greenish (warm) " +
+                            "or bluish (cool). "
+                    )
+                }
+            }
+        }
+        append(
+            "When suggesting hair colors, prefer the app's Color Studio shades so the user can try them on: " +
+                HairShades.all.joinToString(", ") { it.name } + "."
+        )
+    }
+}
+
+/**
+ * Which results the scan isn't sure of, as a sentence pointing at [fixLabel], or null when it's
+ * sure of all of them. The face-shape model splits its belief over four shapes, so it gets a
+ * lower bar than the hair readings.
+ */
+fun ScanResult.unsureSentence(fixLabel: String): String? {
+    val unsure = buildList {
+        if (faceShapeConfidence < FACE_SHAPE_SURE) add("face shape")
+        if (hairLength != HairLength.BALD) {
+            if (hairLengthConfidence < HAIR_SURE) add("hair length")
+            if (hairTextureConfidence < HAIR_SURE) add("hair texture")
+        }
+    }
+    if (unsure.isEmpty()) return null
+    val items = if (unsure.size == 1) unsure[0] else unsure.dropLast(1).joinToString(", ") + " and " + unsure.last()
+    return "I'm not sure about your $items, so check ${if (unsure.size == 1) "it" else "them"} with \"$fixLabel\"."
+}
+
+private const val FACE_SHAPE_SURE = 0.4f
+private const val HAIR_SURE = 0.5f
+
+/** The chat's sentence about the skin right after a scan, or null when it wasn't read reliably. */
+fun ScanResult.skinScanSentence(): String? {
+    val tone = confidentSkinTone ?: return null
+    val undertone = confidentUndertone
+    return "Your skin reads as ${tone.displayName.lowercase()}" +
+        (undertone?.let { " with a ${it.displayName.lowercase()} undertone" } ?: "") +
+        ", which I'll use if you ask about hair color."
+}
 
 /**
  * The chat context line telling the model which catalog styles suit the user's profile gender,

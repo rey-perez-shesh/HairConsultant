@@ -3,7 +3,6 @@ package com.hairconsultant.app.ui.profile
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,9 +56,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -82,6 +78,7 @@ import com.hairconsultant.app.domain.model.colorLookShadeId
 import com.hairconsultant.app.domain.model.isArFilter
 import com.hairconsultant.app.ui.components.FaceFitTiles
 import com.hairconsultant.app.ui.components.OverlayIconButton
+import com.hairconsultant.app.ui.components.StageStamp
 import com.hairconsultant.app.ui.components.StarRatingBar
 import com.hairconsultant.app.ui.components.StatusBarScrim
 import com.hairconsultant.app.ui.deepar.DeepArCurtainsTestScreen
@@ -658,43 +655,6 @@ private fun consultationDetail(consultation: Consultation): String {
     val scan = consultation.scanResult
     return "$source · ${scan.faceShape.displayName} face · ${hairSummary(scan)}"
 }
-
-/** Solid in the fit mark once a stage was reached, dashed and muted when it wasn't: the state reads without colour too. */
-@Composable
-private fun StageStamp(label: String, reached: Boolean) {
-    val shop = LocalShopColors.current
-    val outline = MaterialTheme.colorScheme.outline
-    val shape = MaterialTheme.shapes.extraSmall
-    Box(
-        modifier = Modifier
-            .then(
-                if (reached) {
-                    Modifier.border(1.5.dp, shop.fit, shape)
-                } else {
-                    Modifier.drawDashedBorder(outline)
-                }
-            )
-            .padding(horizontal = 7.dp, vertical = 3.dp)
-            .clearAndSetSemantics { contentDescription = if (reached) label else "$label: not yet" }
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (reached) shop.fit else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-private fun Modifier.drawDashedBorder(color: androidx.compose.ui.graphics.Color): Modifier =
-    this.then(
-        Modifier.drawBehind {
-            drawRoundRect(
-                color = color,
-                style = Stroke(width = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
-            )
-        }
-    )
 
 @Composable
 private fun FeedbackCard(

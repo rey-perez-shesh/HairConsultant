@@ -48,6 +48,17 @@
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.HairConsultant" />
+
+        <!-- Hands the camera app a file to write Image Upload's "Take a photo" shot into. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

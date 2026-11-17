@@ -15,6 +15,10 @@ import com.hairconsultant.app.domain.model.FaceShape
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.ScanResult
+import com.hairconsultant.app.domain.model.SkinTone
+import com.hairconsultant.app.domain.model.SkinUndertone
+import com.hairconsultant.app.domain.model.confidentSkinTone
+import com.hairconsultant.app.domain.model.confidentUndertone
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 
@@ -151,7 +155,12 @@ private fun ConsultationEntity.toDomain(haircut: com.hairconsultant.app.domain.m
     scanResult = ScanResult(
         faceShape = runCatching { FaceShape.valueOf(faceShape) }.getOrDefault(FaceShape.OVAL),
         hairLength = runCatching { HairLength.valueOf(hairLength) }.getOrDefault(HairLength.MEDIUM),
-        hairTexture = runCatching { HairTexture.valueOf(hairTexture) }.getOrDefault(HairTexture.STRAIGHT)
+        hairTexture = runCatching { HairTexture.valueOf(hairTexture) }.getOrDefault(HairTexture.STRAIGHT),
+        // Rows only keep readings the scan was sure of (see toEntity), so a stored one counts as sure.
+        skinTone = skinTone?.let { runCatching { SkinTone.valueOf(it) }.getOrNull() },
+        skinUndertone = skinUndertone?.let { runCatching { SkinUndertone.valueOf(it) }.getOrNull() },
+        skinToneConfidence = if (skinTone != null) 1f else 0f,
+        skinUndertoneConfidence = if (skinUndertone != null) 1f else 0f
     ),
     selectedHaircut = haircut,
     sourceImageUrl = sourceImageUrl,
@@ -171,5 +180,7 @@ private fun Consultation.toEntity() = ConsultationEntity(
     sourceImageUrl = sourceImageUrl,
     resultImageUrl = resultImageUrl,
     isFavorite = isFavorite,
-    createdAtEpochMillis = createdAtEpochMillis
+    createdAtEpochMillis = createdAtEpochMillis,
+    skinTone = scanResult.confidentSkinTone?.name,
+    skinUndertone = scanResult.confidentUndertone?.name
 )

@@ -9,6 +9,8 @@ import com.hairconsultant.app.domain.model.FaceShape
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.ScanResult
+import com.hairconsultant.app.domain.model.SkinTone
+import com.hairconsultant.app.domain.model.SkinUndertone
 import kotlinx.coroutines.tasks.await
 
 /**
@@ -59,6 +61,11 @@ class FirestoreConsultationRepository(
                 "hairTextureConfidence" to consultation.scanResult.hairTextureConfidence.toDouble(),
                 "verifierFaceShape" to consultation.scanResult.verifierFaceShape?.name,
                 "sourcesAgreed" to consultation.scanResult.sourcesAgreed,
+                "skinTone" to consultation.scanResult.skinTone?.name,
+                "skinUndertone" to consultation.scanResult.skinUndertone?.name,
+                "skinToneConfidence" to consultation.scanResult.skinToneConfidence.toDouble(),
+                "skinUndertoneConfidence" to consultation.scanResult.skinUndertoneConfidence.toDouble(),
+                "measurements" to consultation.scanResult.measurements.mapValues { it.value.toDouble() },
                 "appVersion" to BuildConfig.VERSION_NAME,
                 "deviceModel" to "${Build.MANUFACTURER} ${Build.MODEL}"
             )
@@ -83,7 +90,11 @@ class FirestoreConsultationRepository(
                     hairLength = runCatching { HairLength.valueOf(doc.getString("hairLength").orEmpty()) }
                         .getOrDefault(HairLength.MEDIUM),
                     hairTexture = runCatching { HairTexture.valueOf(doc.getString("hairTexture").orEmpty()) }
-                        .getOrDefault(HairTexture.STRAIGHT)
+                        .getOrDefault(HairTexture.STRAIGHT),
+                    skinTone = doc.getString("skinTone")?.let { runCatching { SkinTone.valueOf(it) }.getOrNull() },
+                    skinUndertone = doc.getString("skinUndertone")?.let { runCatching { SkinUndertone.valueOf(it) }.getOrNull() },
+                    skinToneConfidence = doc.getDouble("skinToneConfidence")?.toFloat() ?: 0f,
+                    skinUndertoneConfidence = doc.getDouble("skinUndertoneConfidence")?.toFloat() ?: 0f
                 ),
                 selectedHaircut = null,
                 sourceImageUrl = doc.getString("sourceImageUrl"),

@@ -3,6 +3,8 @@ package com.hairconsultant.app.data.local
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.hairconsultant.app.data.local.dao.ChatMessageDao
 import com.hairconsultant.app.data.local.dao.ChatSummaryDao
 import com.hairconsultant.app.data.local.dao.ConsultationDao
@@ -30,7 +32,7 @@ import com.hairconsultant.app.data.local.entity.UserEntity
         ChatMessageEntity::class,
         ChatSummaryEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -44,5 +46,13 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "hair_consultant.db"
+
+        /** Adds the scan's skin tone to consultations, keeping history and favorites (the fallback would wipe them). */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE consultations ADD COLUMN skinTone TEXT")
+                db.execSQL("ALTER TABLE consultations ADD COLUMN skinUndertone TEXT")
+            }
+        }
     }
 }

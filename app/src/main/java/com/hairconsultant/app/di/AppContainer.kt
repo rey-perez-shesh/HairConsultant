@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.google.firebase.database.FirebaseDatabase
 import com.hairconsultant.app.data.analysis.FaceAnalyzer
 import com.hairconsultant.app.data.analysis.FaceLandmarkStore
+import com.hairconsultant.app.data.analysis.FaceParsingSegmenter
 import com.hairconsultant.app.data.analysis.FaceShapeTfliteClassifier
 import com.hairconsultant.app.data.analysis.HairTypeTfliteClassifier
 import com.hairconsultant.app.data.analysis.LandmarkFaceAnalyzer
@@ -12,6 +13,7 @@ import com.hairconsultant.app.data.analysis.MlKitFaceMeshVerifier
 import com.hairconsultant.app.data.analysis.StillImageFaceLandmarker
 import com.hairconsultant.app.data.analysis.StillImageHairSegmenter
 import com.hairconsultant.app.data.local.AppDatabase
+import com.hairconsultant.app.data.local.ScanPhotoStore
 import com.hairconsultant.app.data.local.ThemePreference
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
 import com.hairconsultant.app.data.remote.firebase.ChatHistoryRemoteRepository
@@ -44,6 +46,7 @@ import com.hairconsultant.app.data.repository.HaircutRepositoryImpl
 import com.hairconsultant.app.data.repository.UserRepository
 import com.hairconsultant.app.data.repository.UserRepositoryImpl
 import com.hairconsultant.app.ui.chatbot.ChatBotController
+import java.io.File
 
 /**
  * Lightweight manual service locator (no Hilt) so the dependency graph stays easy to read.
@@ -62,6 +65,7 @@ class AppContainer(private val appContext: Context) {
 
     val database: AppDatabase by lazy {
         Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.DATABASE_NAME)
+            .addMigrations(AppDatabase.MIGRATION_6_7)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -106,9 +110,12 @@ class AppContainer(private val appContext: Context) {
     // --- Face + hair: MediaPipe live landmarker/hair mask + ML Kit second check ---
     // Swap LandmarkFaceAnalyzer(...) for MockFaceAnalyzer() to restore random results.
     val faceLandmarkStore = FaceLandmarkStore()
+    // noBackupFilesDir: face photos stay out of Google auto-backup (allowBackup is on).
+    val scanPhotoStore by lazy { ScanPhotoStore(File(appContext.noBackupFilesDir, "scan_photos")) }
     private val stillFaceLandmarker by lazy { StillImageFaceLandmarker(appContext) }
     private val mlKitFaceMeshVerifier by lazy { MlKitFaceMeshVerifier(appContext) }
     private val stillHairSegmenter by lazy { StillImageHairSegmenter(appContext) }
+    private val faceParsingSegmenter by lazy { FaceParsingSegmenter(appContext) }
     // CNN classifiers trained on Kaggle data (see ml/train_classifiers.ipynb); both are optional
     // at runtime and fall back to the geometric/pixel heuristics until their .tflite assets exist.
     private val faceShapeCnn by lazy { FaceShapeTfliteClassifier(appContext) }
@@ -120,6 +127,7 @@ class AppContainer(private val appContext: Context) {
             stillFaceLandmarker,
             mlKitFaceMeshVerifier,
             stillHairSegmenter,
+            faceParsingSegmenter,
             faceShapeCnn,
             hairTypeCnn
         )

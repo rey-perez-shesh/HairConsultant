@@ -12,7 +12,9 @@ import android.view.View
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.hairconsultant.app.data.analysis.FaceGuide
 import com.hairconsultant.app.data.analysis.FaceOverlayFrame
+import com.hairconsultant.app.data.analysis.FaceShapeClassifier
 import com.hairconsultant.app.data.analysis.HairMask
+import com.hairconsultant.app.data.analysis.LandmarkPoint
 import com.hairconsultant.app.data.analysis.HairMaskRefiner
 import com.hairconsultant.app.data.analysis.HairRemover
 import com.hairconsultant.app.domain.model.HairLength
@@ -169,6 +171,7 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
                     pointPaint
                 )
             }
+            frame.hairline?.let { hairline -> drawHairline(canvas, hairline, scale, offsetX, offsetY) }
         }
 
         val status = when {
@@ -187,6 +190,34 @@ class FaceLandmarkOverlayView @JvmOverloads constructor(
         val measured = textPaint.measureText(status)
         if (measured > maxWidth && maxWidth > 0) textPaint.textSize *= maxWidth / measured
         canvas.drawText(status, width / 2f, ovalBounds.bottom + 56f, textPaint)
+    }
+
+    /**
+     * The forehead the mesh doesn't cover: a dashed line from the mesh's top point up to the
+     * measured hairline, and a tick across the face there.
+     */
+    private fun drawHairline(canvas: Canvas, hairline: LandmarkPoint, scale: Float, offsetX: Float, offsetY: Float) {
+        val top = frame.points.getOrNull(FaceShapeClassifier.FOREHEAD_TOP) ?: return
+        val left = frame.points.getOrNull(FaceShapeClassifier.LEFT_CHEEK) ?: return
+        val right = frame.points.getOrNull(FaceShapeClassifier.RIGHT_CHEEK) ?: return
+        fun x(p: LandmarkPoint) = p.x * frame.imageWidth * scale + offsetX
+        fun y(p: LandmarkPoint) = p.y * frame.imageHeight * scale + offsetY
+        canvas.drawLine(x(top), y(top), x(hairline), y(hairline), hairlinePaint)
+        // Across the face, perpendicular to the line up from the mesh, a quarter of the cheek width each way.
+        val upX = x(hairline) - x(top)
+        val upY = y(hairline) - y(top)
+        val upLength = kotlin.math.hypot(upX, upY).takeIf { it > 0f } ?: return
+        val half = kotlin.math.hypot(x(right) - x(left), y(right) - y(left)) * 0.25f
+        val acrossX = -upY / upLength * half
+        val acrossY = upX / upLength * half
+        canvas.drawLine(x(hairline) - acrossX, y(hairline) - acrossY, x(hairline) + acrossX, y(hairline) + acrossY, hairlinePaint)
+    }
+
+    private val hairlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#F6E27A")
+        strokeWidth = 4f
+        style = Paint.Style.STROKE
+        pathEffect = DashPathEffect(floatArrayOf(12f, 10f), 0f)
     }
 
     private companion object {

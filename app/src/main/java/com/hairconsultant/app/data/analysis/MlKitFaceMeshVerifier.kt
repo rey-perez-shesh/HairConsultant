@@ -8,7 +8,10 @@ import com.google.mlkit.vision.facemesh.FaceMeshDetection
 import com.google.mlkit.vision.facemesh.FaceMeshDetectorOptions
 import kotlinx.coroutines.tasks.await
 
-/** Second-opinion face mesh used only on Scan / photo — not on every camera frame. */
+/**
+ * Second-opinion face mesh used only on Scan / photo — not on every camera frame. Returns the
+ * mesh's ratios so the caller decides them the same way as the main measurement.
+ */
 class MlKitFaceMeshVerifier(context: Context) : AutoCloseable {
 
     private val detector = FaceMeshDetection.getClient(
@@ -17,7 +20,8 @@ class MlKitFaceMeshVerifier(context: Context) : AutoCloseable {
             .build()
     )
 
-    suspend fun classify(bitmap: Bitmap): FaceShapeClassification? {
+    /** [angles]: the head pose MediaPipe read for the same image (ML Kit's mesh doesn't report one). */
+    suspend fun measure(bitmap: Bitmap, angles: HeadAngles?): FaceShapeMetrics? {
         return runCatching {
             val image = InputImage.fromBitmap(bitmap, 0)
             val meshes = detector.process(image).await()
@@ -32,7 +36,7 @@ class MlKitFaceMeshVerifier(context: Context) : AutoCloseable {
                     points[index] = LandmarkPoint(pos.x / width, pos.y / height)
                 }
             }
-            FaceShapeClassifier.classify(points, bitmap.width, bitmap.height)
+            FaceShapeClassifier.measure(points, bitmap.width, bitmap.height, angles)
         }.onFailure { error ->
             Log.w(TAG, "ML Kit face mesh failed", error)
         }.getOrNull()

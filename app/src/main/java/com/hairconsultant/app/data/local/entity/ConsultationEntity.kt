@@ -16,5 +16,8 @@ data class ConsultationEntity(
     val sourceImageUrl: String?,
     val resultImageUrl: String?,
     val isFavorite: Boolean,
-    val createdAtEpochMillis: Long
+    val createdAtEpochMillis: Long,
+    /** [com.hairconsultant.app.domain.model.SkinTone] name; null for older rows and saved looks. */
+    val skinTone: String? = null,
+    val skinUndertone: String? = null
 )

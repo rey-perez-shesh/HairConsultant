@@ -26,6 +26,9 @@ enum class HairColor(val displayName: String) {
     BLONDE("Blonde"),
     RED("Red"),
     GRAY("Gray"),
+    /** A dyed colour no hair grows naturally: blue, green, purple, pink and the like. */
+    FASHION("Fashion-dyed"),
+    /** Not read: no hair, or too little of it. */
     OTHER("Other")
 }
 
@@ -35,6 +38,22 @@ enum class FaceShape(val displayName: String) {
     SQUARE("Square"),
     HEART("Heart"),
     DIAMOND("Diamond")
+}
+
+/** Skin depth, in the six standard ITA bands (Chardon et al.) that skin-tone research reads from CIELAB. */
+enum class SkinTone(val displayName: String) {
+    VERY_LIGHT("Very light"),
+    LIGHT("Light"),
+    MEDIUM("Medium"),
+    TAN("Tan"),
+    BROWN("Brown"),
+    DEEP("Deep")
+}
+
+enum class SkinUndertone(val displayName: String) {
+    WARM("Warm"),
+    NEUTRAL("Neutral"),
+    COOL("Cool")
 }
 
 /** Who a catalog haircut is styled for, independent of the wearer's own [Gender]. */

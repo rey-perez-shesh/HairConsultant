@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
+import com.hairconsultant.app.data.remote.gemini.describeColoringForChatContext
 import com.hairconsultant.app.data.remote.gemini.describeForChatContext
+import com.hairconsultant.app.domain.model.ScanResult
 import com.hairconsultant.app.data.remote.gemini.haircutsNamedIn
 import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.HaircutRepository
@@ -57,6 +59,9 @@ class HomeViewModel(
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState
 
+    /** The user's latest saved scan, so the Home chat can give hair-colour advice from their skin tone. */
+    private var latestScan: ScanResult? = null
+
     val chatState: StateFlow<ChatBotUiState> = chatBot.state.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5000), ChatBotUiState()
     )
@@ -88,7 +93,8 @@ class HomeViewModel(
             val uid = authRepository.currentUser.value?.uid ?: return@launch
             // History is newest first, so its head is the latest confirmed scan.
             consultationRepository.observeHistory(uid).collect { history ->
-                _uiState.update { it.copy(userFaceShape = history.firstOrNull()?.scanResult?.faceShape) }
+                latestScan = history.firstOrNull()?.scanResult
+                _uiState.update { it.copy(userFaceShape = latestScan?.faceShape) }
             }
         }
     }
@@ -158,6 +164,11 @@ class HomeViewModel(
         val catalog = _uiState.value.allClusters.flatMap { it.haircuts }
         val context = buildString {
             profileGender().describeForChatContext()?.let { append(it).append("\n") }
+            latestScan?.let { scan ->
+                append("From the user's latest scan: ${scan.faceShape.displayName} face shape. ")
+                scan.describeColoringForChatContext()?.let { append(it) }
+                append("\n")
+            }
             append("Hairstyle catalog (every style the app has):\n${catalog.describeForChatContext()}")
         }
         val conversation = chatBot.buildReplyContext()

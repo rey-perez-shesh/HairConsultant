@@ -1,5 +1,6 @@
 package com.hairconsultant.app.data.analysis
 
+import com.hairconsultant.app.domain.model.FaceShape
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
@@ -40,13 +41,16 @@ data class HeadAngles(val yawDeg: Float, val pitchDeg: Float, val rollDeg: Float
 data class FaceFrameSample(
     val metrics: FaceShapeMetrics,
     val angles: HeadAngles?,
-    val atElapsedMillis: Long
+    val atElapsedMillis: Long,
+    /** Lips parted, which drops the chin and lengthens the face (see [FaceShapeClassifier.isMouthOpen]). */
+    val mouthOpen: Boolean = false
 )
 
-/** The face shape decided from several frames, and how consistently those frames agreed on it. */
+/** Several frames' face measurements combined, and how consistently those frames agreed on a shape. */
 data class AggregatedFaceShape(
-    val classification: FaceShapeClassification,
-    /** Share of the used frames whose own measurements gave the same shape, 0..1. */
+    /** Median of each ratio over the used frames. */
+    val metrics: FaceShapeMetrics,
+    /** Share of the used frames whose own measurements gave the same shape as the median, 0..1. */
     val agreement: Float,
     val framesUsed: Int
 )
@@ -160,33 +164,32 @@ object FaceAlignment {
         }
     }
 
+    /** A frame the face shape can be measured from: head facing the camera and mouth closed. */
+    fun isUsable(sample: FaceFrameSample): Boolean = isFacingCamera(sample.angles) && !sample.mouthOpen
+
     /**
-     * Combines [samples] (oldest first) into one face shape, using only frames facing the camera.
-     * Returns null when fewer than [MIN_FRAMES] such frames exist, so the caller can ask the user
-     * to straighten up instead of guessing from a turned head.
+     * Combines [samples] (oldest first) into one set of ratios, using only [isUsable] frames, and
+     * says how many of those frames' own ratios give the same [shapeOf] as the median. Returns
+     * null when fewer than [MIN_FRAMES] such frames exist, so the caller can ask the user to
+     * straighten up instead of guessing from a turned head.
      */
-    fun aggregate(samples: List<FaceFrameSample>): AggregatedFaceShape? {
-        val usable = samples.filter { isFacingCamera(it.angles) }.takeLast(TARGET_FRAMES)
+    fun aggregate(samples: List<FaceFrameSample>, shapeOf: (FaceShapeMetrics) -> FaceShape): AggregatedFaceShape? {
+        val usable = samples.filter(::isUsable).takeLast(TARGET_FRAMES)
         if (usable.size < MIN_FRAMES) return null
         val median = FaceShapeMetrics(
             lengthToWidth = usable.map { it.metrics.lengthToWidth }.median(),
             jawToCheek = usable.map { it.metrics.jawToCheek }.median(),
             foreheadToJaw = usable.map { it.metrics.foreheadToJaw }.median(),
-            foreheadToCheek = usable.map { it.metrics.foreheadToCheek }.median()
+            foreheadToCheek = usable.map { it.metrics.foreheadToCheek }.median(),
+            jawAngleDeg = usable.map { it.metrics.jawAngleDeg }.median(),
+            chinToJaw = usable.map { it.metrics.chinToJaw }.median()
         )
-        val classification = FaceShapeClassifier.classify(median)
-        val agreement = usable.count { FaceShapeClassifier.classify(it.metrics).shape == classification.shape }
-            .toFloat() / usable.size
-        return AggregatedFaceShape(classification, agreement, usable.size)
+        val shape = shapeOf(median)
+        val agreement = usable.count { shapeOf(it.metrics) == shape }.toFloat() / usable.size
+        return AggregatedFaceShape(median, agreement, usable.size)
     }
 
     /** Lowers [confidence] when the frames disagreed, i.e. the face sits on the border between two shapes. */
     fun adjustForAgreement(confidence: Float, agreement: Float): Float =
         if (agreement < LOW_AGREEMENT) minOf(confidence, LOW_AGREEMENT_CONFIDENCE_CAP) else confidence
-
-    private fun List<Float>.median(): Float {
-        val sorted = sorted()
-        val mid = sorted.size / 2
-        return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2f
-    }
 }

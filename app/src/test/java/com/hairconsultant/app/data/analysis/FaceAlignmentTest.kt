@@ -103,8 +103,8 @@ class FaceAlignmentTest {
     @Test
     fun medianIgnoresASingleOutlierFrame() {
         val frames = List(9) { sample(ROUND) } + sample(OVAL)
-        val result = FaceAlignment.aggregate(frames)!!
-        assertEquals(FaceShape.ROUND, result.classification.shape)
+        val result = FaceAlignment.aggregate(frames, ::shapeOf)!!
+        assertEquals(ROUND, result.metrics)
         assertEquals(10, result.framesUsed)
         assertEquals(0.9f, result.agreement, 0.001f)
     }
@@ -113,25 +113,38 @@ class FaceAlignmentTest {
     fun framesWithTheHeadTurnedAreLeftOut() {
         val turned = List(10) { sample(OVAL, HeadAngles(30f, 0f, 0f)) }
         val facing = List(4) { sample(ROUND) }
-        val result = FaceAlignment.aggregate(turned + facing)!!
-        assertEquals(FaceShape.ROUND, result.classification.shape)
+        val result = FaceAlignment.aggregate(turned + facing, ::shapeOf)!!
+        assertEquals(ROUND, result.metrics)
+        assertEquals(4, result.framesUsed)
+    }
+
+    @Test
+    fun framesWithTheMouthOpenAreLeftOut() {
+        val talking = List(10) { sample(OVAL, mouthOpen = true) }
+        val closed = List(4) { sample(ROUND) }
+        val result = FaceAlignment.aggregate(talking + closed, ::shapeOf)!!
+        assertEquals(ROUND, result.metrics)
         assertEquals(4, result.framesUsed)
     }
 
     @Test
     fun tooFewFramesFacingTheCameraGivesNoResult() {
         val frames = List(10) { sample(ROUND, HeadAngles(0f, 25f, 0f)) } + sample(ROUND) + sample(ROUND)
-        assertNull(FaceAlignment.aggregate(frames))
+        assertNull(FaceAlignment.aggregate(frames, ::shapeOf))
     }
 
     @Test
     fun usesOnlyTheMostRecentTargetFrames() {
         val old = List(10) { sample(OVAL) }
         val recent = List(FaceAlignment.TARGET_FRAMES) { sample(ROUND) }
-        val result = FaceAlignment.aggregate(old + recent)
+        val result = FaceAlignment.aggregate(old + recent, ::shapeOf)
         assertNotNull(result)
-        assertEquals(FaceShape.ROUND, result!!.classification.shape)
+        assertEquals(ROUND, result!!.metrics)
     }
+
+    /** Stands in for the trained model: a short face is Round, a long one Oval. */
+    private fun shapeOf(metrics: FaceShapeMetrics): FaceShape =
+        if (metrics.lengthToWidth < 1.25f) FaceShape.ROUND else FaceShape.OVAL
 
     @Test
     fun lowAgreementCapsConfidence() {
@@ -139,8 +152,8 @@ class FaceAlignmentTest {
         assertEquals(0.85f, FaceAlignment.adjustForAgreement(0.85f, agreement = 0.8f), 0.001f)
     }
 
-    private fun sample(metrics: FaceShapeMetrics, angles: HeadAngles? = HeadAngles(0f, 0f, 0f)) =
-        FaceFrameSample(metrics, angles, atElapsedMillis = 0L)
+    private fun sample(metrics: FaceShapeMetrics, angles: HeadAngles? = HeadAngles(0f, 0f, 0f), mouthOpen: Boolean = false) =
+        FaceFrameSample(metrics, angles, atElapsedMillis = 0L, mouthOpen = mouthOpen)
 
     /** Columns of a 3x3 rotation, padded into a 4x4 column-major matrix like MediaPipe returns. */
     private fun matrix(columns: List<DoubleArray>): FloatArray = FloatArray(16).also { m ->

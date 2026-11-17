@@ -16,7 +16,9 @@ data class FaceOverlayFrame(
     val hairMask: HairMask? = null,
     val estimatedHairLength: HairLength? = null,
     /** Set while a face is found but outside the guide oval or not facing the camera; the guide shows it as a warning. */
-    val alignmentHint: String? = null
+    val alignmentHint: String? = null,
+    /** Where the forehead meets the hair, above the mesh's top point ([Hairline]); null when it can't be seen. */
+    val hairline: LandmarkPoint? = null
 ) {
     companion object {
         fun idle(message: String = "Align your face with the outline") = FaceOverlayFrame(
@@ -55,6 +57,9 @@ class FaceLandmarkStore {
     private var latestHair: HairMask? = null
     private var latestHairAtElapsed: Long = 0L
     private var latestAngles: HeadAngles? = null
+    private var latestMouthOpen = false
+    private var latestLighting: Lighting = Lighting.GOOD
+    private var framesSinceLightingCheck = 0
     private var smoothedAngles: HeadAngles? = null
     private var warningShown = false
     private var guideWidth = 0
@@ -70,10 +75,12 @@ class FaceLandmarkStore {
         height: Int,
         angles: HeadAngles? = null
     ) {
-        val metrics = FaceShapeClassifier.measure(points, width, height)
+        val metrics = FaceShapeClassifier.measure(points, width, height, angles)
+        val mouthOpen = FaceShapeClassifier.isMouthOpen(points, width, height)
         synchronized(lock) {
             latestPoints = points
             latestAngles = angles
+            latestMouthOpen = mouthOpen
             smoothedAngles = FaceAlignment.smooth(smoothedAngles, angles)
             warningShown = FaceAlignment.shouldWarn(smoothedAngles, warningShown)
             if (bitmap != null && bitmap !== latestBitmap) {
@@ -82,6 +89,11 @@ class FaceLandmarkStore {
                 previewBitmap?.recycle()
                 previewBitmap = downscaleForBlur(bitmap)
             }
+            // Read under the lock: the next frame recycles this bitmap.
+            if (bitmap != null && ++framesSinceLightingCheck >= LIGHTING_CHECK_EVERY) {
+                framesSinceLightingCheck = 0
+                latestLighting = SkinToneAnalyzer.read(bitmap, points)?.lighting ?: Lighting.GOOD
+            }
             latestWidth = width
             latestHeight = height
             latestAtElapsed = SystemClock.elapsedRealtime()
@@ -89,7 +101,7 @@ class FaceLandmarkStore {
             // frames outside it (or too far away) aren't measured.
             val inGuide = FaceGuide.positionHint(points, width, height, guideWidth, guideHeight) == null
             if (metrics != null && inGuide) {
-                recentSamples.addLast(FaceFrameSample(metrics, angles, latestAtElapsed))
+                recentSamples.addLast(FaceFrameSample(metrics, angles, latestAtElapsed, mouthOpen))
                 while (recentSamples.size > MAX_SAMPLES) recentSamples.removeFirst()
             }
         }
@@ -134,6 +146,8 @@ class FaceLandmarkStore {
         synchronized(lock) {
             latestPoints = null
             latestAngles = null
+            latestMouthOpen = false
+            latestLighting = Lighting.GOOD
             smoothedAngles = null
             warningShown = false
             latestAtElapsed = 0L
@@ -167,10 +181,14 @@ class FaceLandmarkStore {
         val warn: Boolean
         val viewWidth: Int
         val viewHeight: Int
+        val mouthOpen: Boolean
+        val lighting: Lighting
         synchronized(lock) {
             points = latestPoints ?: emptyList()
             angles = smoothedAngles
             warn = warningShown
+            mouthOpen = latestMouthOpen
+            lighting = latestLighting
             viewWidth = guideWidth
             viewHeight = guideHeight
             width = latestWidth.coerceAtLeast(1)
@@ -190,8 +208,21 @@ class FaceLandmarkStore {
         } else {
             null
         }
+        val hairline = if (faceDetected && hair != null) {
+            Hairline.find(points, width, height, hair.width) { x, y -> !hair.isHairAt(x, y) }
+        } else {
+            null
+        }
+        // Neither blocks the scan: open-mouth frames are just left out of it, and poor light only
+        // makes the colour reads less sure.
+        // Hair across the mid-forehead hides the hairline the face length is measured to.
+        val fringe = faceDetected && hair != null && hairline == null &&
+            points.size > MID_FOREHEAD && hair.isHairAt(points[MID_FOREHEAD].x, points[MID_FOREHEAD].y)
         val status = when {
             alignmentHint != null -> alignmentHint
+            faceDetected && mouthOpen -> "Relax your face, mouth closed"
+            fringe -> "Push your hair off your forehead — tap Scan when ready"
+            faceDetected && lighting.hint != null -> "${lighting.hint} — tap Scan when ready"
             faceDetected && hairLength == HairLength.BALD ->
                 "Face found — bald / no hair detected — tap Scan"
             faceDetected && hairLength != null ->
@@ -211,13 +242,20 @@ class FaceLandmarkStore {
             statusMessage = status,
             hairMask = hair,
             estimatedHairLength = hairLength,
-            alignmentHint = alignmentHint
+            alignmentHint = alignmentHint,
+            hairline = hairline
         )
     }
 
     private companion object {
         /** About 2–3 seconds of frames at the live landmarker's rate. */
         const val MAX_SAMPLES = 45
+
+        /** The live light check samples a few hundred pixels; every few frames is plenty for a hint. */
+        const val LIGHTING_CHECK_EVERY = 6
+
+        /** Mesh point midway up the forehead, between the brow and the mesh's top. */
+        const val MID_FOREHEAD = 151
     }
 
     private fun downscaleForBlur(src: Bitmap): Bitmap? {

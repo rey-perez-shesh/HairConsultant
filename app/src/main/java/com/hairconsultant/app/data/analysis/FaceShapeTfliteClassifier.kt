@@ -8,8 +8,6 @@ import java.io.FileInputStream
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 
-data class FaceShapeCnnResult(val shape: FaceShape, val confidence: Float)
-
 /**
  * Small feedforward classifier trained (see ml/train_classifiers.ipynb) on the same four
  * landmark-ratio features the geometric [FaceShapeClassifier] heuristic already computes
@@ -22,14 +20,14 @@ data class FaceShapeCnnResult(val shape: FaceShape, val confidence: Float)
  * preprocessing that can drift out of sync.
  *
  * Trained on Heart/Oval/Round/Square only — Diamond has no usable training data (see the
- * notebook's notes) and stays covered permanently by the [FaceShapeClassifier] heuristic that
- * callers fall back to.
+ * notebook's notes) and is decided by [FaceShapeClassifier] from the population statistics in
+ * this model's normalization layer.
  *
  * Labels are hardcoded in the exact alphabetical order Keras's `image_dataset_from_directory` (via
  * the training labels array) assigns them, matching [FaceShape] enum names exactly.
  *
- * The asset is optional: until face_shape_classifier.tflite is dropped into assets/, [isReady] is
- * false and [classify] returns null so callers keep using the heuristic alone.
+ * If the asset fails to load, [isReady] is false and [probabilities] returns null, so
+ * [FaceShapeClassifier.decide] uses its population-based fallback.
  */
 class FaceShapeTfliteClassifier(context: Context) : AutoCloseable {
 
@@ -50,21 +48,21 @@ class FaceShapeTfliteClassifier(context: Context) : AutoCloseable {
 
     val isReady: Boolean get() = interpreter != null
 
-    fun classify(metrics: FaceShapeMetrics): FaceShapeCnnResult? {
-        val model = interpreter ?: return null
-        val input = arrayOf(
-            floatArrayOf(metrics.lengthToWidth, metrics.jawToCheek, metrics.foreheadToJaw, metrics.foreheadToCheek)
-        )
-        val output = Array(1) { FloatArray(LABELS.size) }
-        runCatching { model.run(input, output) }
-            .onFailure { error -> Log.w(TAG, "classify() failed", error) }
-            .getOrElse { return null }
+    private val inputSize: Int =
+        interpreter?.let { runCatching { it.getInputTensor(0).shape().last() }.getOrNull() } ?: 4
 
-        val scores = output[0]
-        val bestIndex = scores.indices.maxByOrNull { scores[it] } ?: return null
-        val shape = runCatching { FaceShape.valueOf(LABELS[bestIndex]) }.getOrNull() ?: return null
-        Log.d(TAG, "scores=${scores.toList()} -> $shape (${scores[bestIndex]})")
-        return FaceShapeCnnResult(shape, scores[bestIndex])
+    /** How likely each of Heart/Oval/Round/Square is (summing to 1), or null when the model isn't loaded. */
+    fun probabilities(metrics: FaceShapeMetrics): Map<FaceShape, Float>? {
+        val model = interpreter ?: return null
+        val ratios = floatArrayOf(metrics.lengthToWidth, metrics.jawToCheek, metrics.foreheadToJaw, metrics.foreheadToCheek)
+        // The bundled model takes the four ratios; one retrained by the current notebook also takes
+        // jaw angle and chin width, in this order.
+        val input = arrayOf(if (inputSize >= 6) ratios + floatArrayOf(metrics.jawAngleDeg, metrics.chinToJaw) else ratios)
+        val output = Array(1) { FloatArray(LABELS.size) }
+        runCatching { synchronized(model) { model.run(input, output) } }
+            .onFailure { error -> Log.w(TAG, "probabilities() failed", error) }
+            .getOrElse { return null }
+        return LABELS.indices.associate { FaceShape.valueOf(LABELS[it]) to output[0][it] }
     }
 
     override fun close() {

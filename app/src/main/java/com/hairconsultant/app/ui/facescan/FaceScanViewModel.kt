@@ -5,13 +5,17 @@ import androidx.lifecycle.viewModelScope
 import com.hairconsultant.app.data.analysis.FaceAnalyzer
 import com.hairconsultant.app.data.analysis.FaceLandmarkStore
 import com.hairconsultant.app.data.analysis.NoFaceDetectedException
+import com.hairconsultant.app.data.local.ScanPhotoStore
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
 import com.hairconsultant.app.data.recommendation.HairstyleRecommender
 import com.hairconsultant.app.data.remote.gemini.ExtractedPreferences
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.data.remote.gemini.asksToSeeHairstyles
+import com.hairconsultant.app.data.remote.gemini.describeColoringForChatContext
 import com.hairconsultant.app.data.remote.gemini.describeForChatContext
 import com.hairconsultant.app.data.remote.gemini.haircutsNamedIn
+import com.hairconsultant.app.data.remote.gemini.skinScanSentence
+import com.hairconsultant.app.data.remote.gemini.unsureSentence
 import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.UserRepository
 import com.hairconsultant.app.domain.model.Consultation
@@ -61,7 +65,8 @@ class FaceScanViewModel(
     val chatBot: ChatBotController,
     private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
-    private val consultationRepository: ConsultationRepository
+    private val consultationRepository: ConsultationRepository,
+    private val scanPhotoStore: ScanPhotoStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(FaceScanUiState())
@@ -106,18 +111,31 @@ class FaceScanViewModel(
         chatBot.setOpen(false)
         consultationStartedAt = System.currentTimeMillis()
         chatBot.pushBotMessage("Analyzing your face and hair, hold still...")
+        // The frame Scan was tapped on: centered in the oval and facing the camera, per
+        // scanBlockedReason(). Kept as the user's scan photo for Image Upload if the scan succeeds.
+        val frame = landmarkStore.snapshot()?.bitmap
         viewModelScope.launch {
             try {
-                val result = faceAnalyzer.analyzeCameraFrame()
+                val result = faceAnalyzer.analyzeCameraFrame(previousShape = lastConfirmedFaceShape())
+                android.util.Log.i("ScanResultLog", result.toString())
                 chatBot.setOpen(true)
                 _uiState.update { it.copy(stage = FaceScanStage.CONFIRM_RESULT, scanResult = result) }
                 chatBot.pushBotMessage(
                     "I detected a ${result.faceShape.displayName} face shape" +
-                        hairScanPhrase(result) +
-                        ". Want to see hairstyles that fit you right away, or talk it through with me first? " +
+                        hairScanPhrase(result) + "." +
+                        (result.skinScanSentence()?.let { " $it" } ?: "") +
+                        (result.analysisNote?.let { " $it" } ?: "") +
+                        (result.unsureSentence(FIX_SCAN_LABEL)?.let { " $it" } ?: "") +
+                        " Want to see hairstyles that fit you right away, or talk it through with me first? " +
                         "If I got anything wrong, tap \"$FIX_SCAN_LABEL\".",
                     quickReplies = listOf(CONFIRM_LABEL, CONSULT_LABEL, FIX_SCAN_LABEL)
                 )
+                val uid = authRepository.currentUser.value?.uid
+                // Caught here: a failed save mustn't turn a finished scan into "Scan failed" below.
+                if (uid != null && frame != null) {
+                    runCatching { scanPhotoStore.save(uid, frame) }
+                        .onFailure { android.util.Log.w("FaceScan", "Couldn't keep the scan photo", it) }
+                }
             } catch (error: NoFaceDetectedException) {
                 chatBot.setOpen(true)
                 _uiState.update { it.copy(stage = FaceScanStage.IDLE) }
@@ -126,6 +144,8 @@ class FaceScanViewModel(
                 chatBot.setOpen(true)
                 _uiState.update { it.copy(stage = FaceScanStage.IDLE) }
                 chatBot.pushBotMessage("Scan failed (${error.message}). Please try again.")
+            } finally {
+                frame?.recycle()
             }
         }
     }
@@ -200,6 +220,7 @@ class FaceScanViewModel(
             (state.desiredTexture ?: scan?.hairTexture)?.let { append("Hair texture: ${it.displayName}. ") }
             state.desiredTreatment?.takeIf { it != TreatmentPreference.NONE }
                 ?.let { append("Planned treatment: ${it.displayName}. ") }
+            scan?.describeColoringForChatContext()?.let { append("\n").append(it) }
             val gender = profileGender()
             gender.describeForChatContext()?.let { append("\n").append(it) }
             if (scan != null) {
@@ -431,6 +452,13 @@ class FaceScanViewModel(
     private suspend fun profileGender(): Gender? {
         val uid = authRepository.currentUser.value?.uid ?: return null
         return userRepository.get(uid)?.gender
+    }
+
+    /** The face shape of the user's latest saved scan (as they confirmed or fixed it), for a near tie to lean on. */
+    private suspend fun lastConfirmedFaceShape(): FaceShape? {
+        val uid = authRepository.currentUser.value?.uid ?: return null
+        return runCatching { consultationRepository.observeHistory(uid).first().firstOrNull()?.scanResult?.faceShape }
+            .getOrNull()
     }
 
     fun onHaircutTryOn(haircut: Haircut) {

@@ -4,104 +4,115 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import com.hairconsultant.app.domain.model.HairColor
 import com.hairconsultant.app.domain.model.HairTexture
+import com.hairconsultant.app.ui.haircolor.HairColorMath
+import com.hairconsultant.app.ui.haircolor.HairShades
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.hypot
 import kotlin.math.max
-import kotlin.math.min
-
-data class HairAppearanceClassification(
-    val texture: HairTexture,
-    val textureConfidence: Float,
-    val color: HairColor,
-    val colorConfidence: Float
-)
+import kotlin.math.sqrt
 
 /**
- * Estimates hair texture and color from pixels inside the hair mask.
- * Best-effort only — lighting and camera quality affect accuracy.
+ * Hair colour and (fallback) texture from the pixels inside the hair mask.
+ *
+ * Colour is read in OKLab, the perceptual space the Color Studio dyes in: the trimmed median of
+ * confidently-hair pixels away from the mask's edge, matched to the nearest natural Color Studio
+ * shade. Hue is never averaged directly; red hair straddles 0°/360°, where a plain average of
+ * hues lands on cyan.
  */
 object HairAppearanceClassifier {
 
     private const val MIN_HAIR_PIXELS = 80
 
-    fun classify(bitmap: Bitmap, mask: HairMask): HairAppearanceClassification? {
-        if (bitmap.width <= 0 || bitmap.height <= 0 || mask.pixelCount <= 0) return null
+    /** Hair-mask confidence (0-255) a pixel needs to count toward the colour. */
+    private const val CONFIDENT_HAIR = 204
 
-        val samples = sampleHairPixels(bitmap, mask)
-        if (samples.size < MIN_HAIR_PIXELS) return null
+    /** Chroma above which a hue outside natural hair's range reads as a dyed fashion colour. */
+    private const val FASHION_CHROMA = 0.06f
+    private val NATURAL_HUES = 20f..110f
 
-        val color = classifyColor(samples)
-        val texture = classifyTexture(bitmap, mask)
-        return HairAppearanceClassification(
-            texture = texture.first,
-            textureConfidence = texture.second,
-            color = color.first,
-            colorConfidence = color.second
-        )
-    }
+    /** Below this chroma and above this lightness, hair reads as gray, silver or white. */
+    private const val GRAY_CHROMA = 0.025f
+    private const val GRAY_LIGHTNESS = 0.45f
 
-    private data class HairSample(val r: Int, val g: Int, val b: Int, val x: Int, val y: Int)
+    /** The natural Color Studio shades as colour references; their swatches are each shade's evenly lit mid-tone. */
+    private val ANCHORS: List<Pair<HairColor, FloatArray>> = listOf(
+        "jet_black" to HairColor.BLACK,
+        "soft_black" to HairColor.BLACK,
+        "dark_brown" to HairColor.BROWN,
+        "chestnut" to HairColor.BROWN,
+        "light_brown" to HairColor.BROWN,
+        "auburn" to HairColor.RED,
+        "copper" to HairColor.RED,
+        "dark_blonde" to HairColor.BLONDE,
+        "golden_blonde" to HairColor.BLONDE,
+        "platinum" to HairColor.BLONDE
+    ).map { (id, color) -> color to HairColorMath.oklabOf(HairShades.byId(id)!!.argb) }
 
-    private fun sampleHairPixels(bitmap: Bitmap, mask: HairMask): List<HairSample> {
-        val samples = ArrayList<HairSample>(512)
+    /**
+     * The hair's colour as OKLab [L, a, b], or null with too little hair. Skips pixels within two
+     * samples of the mask's edge (they mix in skin and background) and any [exclude] marks (e.g.
+     * skin or clothing the hair mask claimed), then drops the darkest and brightest 20% (shadow,
+     * shine) before taking each channel's median.
+     */
+    fun hairColor(bitmap: Bitmap, mask: HairMask, exclude: ((Float, Float) -> Boolean)? = null): FloatArray? {
+        if (bitmap.isRecycled || bitmap.width <= 0 || mask.pixelCount <= 0) return null
         val step = max(1, mask.width / 128)
-        for (my in 0 until mask.height step step) {
-            val row = my * mask.width
-            for (mx in 0 until mask.width step step) {
-                if (!mask.isHair(row + mx)) continue
-                val bx = (mx * bitmap.width / mask.width).coerceIn(0, bitmap.width - 1)
-                val by = (my * bitmap.height / mask.height).coerceIn(0, bitmap.height - 1)
-                val pixel = bitmap.getPixel(bx, by)
-                val r = Color.red(pixel)
-                val g = Color.green(pixel)
-                val b = Color.blue(pixel)
-                val maxC = max(r, max(g, b))
-                val minC = min(r, min(g, b))
-                val brightness = maxC / 255f
-                val saturation = if (maxC == 0) 0f else (maxC - minC) / maxC.toFloat()
-                if (brightness > 0.97f && saturation < 0.12f) continue
-                if (brightness < 0.04f) continue
-                samples.add(HairSample(r, g, b, bx, by))
+        val edge = 2 * step
+        val samples = ArrayList<FloatArray>(1024)
+        for (my in edge until mask.height - edge step step) {
+            for (mx in edge until mask.width - edge step step) {
+                val index = my * mask.width + mx
+                if (mask.hairAlpha(index) < CONFIDENT_HAIR) continue
+                if (!mask.isHair(index - edge) || !mask.isHair(index + edge) ||
+                    !mask.isHair(index - edge * mask.width) || !mask.isHair(index + edge * mask.width)
+                ) continue
+                val nx = (mx + 0.5f) / mask.width
+                val ny = (my + 0.5f) / mask.height
+                if (exclude?.invoke(nx, ny) == true) continue
+                val bx = (nx * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
+                val by = (ny * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+                samples.add(HairColorMath.oklabOf(bitmap.getPixel(bx, by)))
             }
         }
-        return samples
+        if (samples.size < MIN_HAIR_PIXELS) return null
+        val sorted = samples.sortedBy { it[0] }
+        val trimmed = sorted.subList(sorted.size / 5, sorted.size - sorted.size / 5)
+        return floatArrayOf(trimmed.map { it[0] }.median(), trimmed.map { it[1] }.median(), trimmed.map { it[2] }.median())
     }
 
-    private fun classifyColor(samples: List<HairSample>): Pair<HairColor, Float> {
-        var hueSum = 0f
-        var satSum = 0f
-        var valSum = 0f
-        samples.forEach { sample ->
-            val hsv = FloatArray(3)
-            Color.RGBToHSV(sample.r, sample.g, sample.b, hsv)
-            hueSum += hsv[0]
-            satSum += hsv[1]
-            valSum += hsv[2]
+    /** The [HairColor] for an OKLab colour, with how clearly it beat the next-closest colour. */
+    fun classifyColor(lab: FloatArray): Pair<HairColor, Float> {
+        val (l, a, b) = Triple(lab[0], lab[1], lab[2])
+        val chroma = hypot(a, b)
+        val hue = Math.toDegrees(atan2(b.toDouble(), a.toDouble())).toFloat().let { if (it < 0f) it + 360f else it }
+        if (chroma >= FASHION_CHROMA && hue !in NATURAL_HUES) {
+            return HairColor.FASHION to (0.55f + (chroma - FASHION_CHROMA) * 3f).coerceAtMost(0.85f)
         }
-        val count = samples.size.toFloat()
-        val hue = hueSum / count
-        val sat = satSum / count
-        val value = valSum / count
-
-        val color = when {
-            value < 0.22f -> HairColor.BLACK
-            sat < 0.12f && value > 0.45f -> HairColor.GRAY
-            hue in 5f..45f && sat > 0.18f && value > 0.45f -> HairColor.BLONDE
-            (hue <= 18f || hue >= 340f) && sat > 0.28f -> HairColor.RED
-            value > 0.72f && sat < 0.35f -> HairColor.BLONDE
-            else -> HairColor.BROWN
+        if (chroma < GRAY_CHROMA && l >= GRAY_LIGHTNESS) {
+            return HairColor.GRAY to (0.55f + (GRAY_CHROMA - chroma) * 10f).coerceAtMost(0.8f)
         }
-        val confidence = when (color) {
-            HairColor.BLACK -> (0.28f - value).coerceIn(0.08f, 0.35f) + 0.55f
-            HairColor.GRAY -> (0.18f - sat).coerceIn(0.05f, 0.25f) + 0.55f
-            HairColor.BLONDE -> (value - 0.55f).coerceIn(0.05f, 0.35f) + 0.52f
-            HairColor.RED -> (sat - 0.25f).coerceIn(0.05f, 0.35f) + 0.52f
-            HairColor.BROWN -> 0.58f
-            HairColor.OTHER -> 0.4f
-        }.coerceIn(0.45f, 0.82f)
-        return color to confidence
+        val nearest = ANCHORS.groupBy({ it.first }, { distance(lab, it.second) }).mapValues { it.value.min() }
+            .entries.sortedBy { it.value }
+        val best = nearest[0]
+        val runnerUp = nearest.getOrNull(1)?.value ?: return best.key to 0.6f
+        // 0 when the two closest colours are equally near, 1 when the runner-up is much further.
+        val margin = (runnerUp - best.value) / (runnerUp + best.value).coerceAtLeast(1e-4f)
+        return best.key to (0.5f + 0.4f * (margin * 2f).coerceIn(0f, 1f)).coerceAtMost(0.88f)
     }
 
-    private fun classifyTexture(
+    private fun distance(p: FloatArray, q: FloatArray): Float {
+        val dl = p[0] - q[0]
+        val da = p[1] - q[1]
+        val db = p[2] - q[2]
+        return sqrt(dl * dl + da * da + db * db)
+    }
+
+    /**
+     * Texture from how often brightness changes direction along each row of hair. Only used when
+     * the trained texture model ([HairTypeTfliteClassifier]) isn't available.
+     */
+    fun classifyTexture(
         bitmap: Bitmap,
         mask: HairMask
     ): Pair<HairTexture, Float> {

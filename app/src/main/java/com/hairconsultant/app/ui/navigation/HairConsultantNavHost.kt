@@ -49,6 +49,7 @@ import com.hairconsultant.app.ui.imageupload.ImageUploadViewModel
 import com.hairconsultant.app.ui.profile.ProfileScreen
 import com.hairconsultant.app.ui.theme.EaseOutStrong
 import com.hairconsultant.app.ui.theme.ImageWellDark
+import com.hairconsultant.app.ui.theme.LocalShopColors
 import com.hairconsultant.app.ui.profile.ProfileViewModel
 
 @Composable
@@ -64,7 +65,12 @@ fun HairConsultantNavHost(container: AppContainer) {
 
     Scaffold(
         // Camera screens stay dark in both themes, including the strip under the status bar.
-        containerColor = if (currentRoute in Screen.fullScreenRoutes) ImageWellDark else MaterialTheme.colorScheme.background,
+        // Login and Register carry the shell header up under the status bar the same way.
+        containerColor = when (currentRoute) {
+            in Screen.fullScreenRoutes -> ImageWellDark
+            Screen.Login.route, Screen.Register.route -> LocalShopColors.current.shell
+            else -> MaterialTheme.colorScheme.background
+        },
         bottomBar = {
             if (showBottomBar) {
                 HairConsultantBottomBar(currentRoute = currentRoute) { route ->
@@ -79,17 +85,16 @@ fun HairConsultantNavHost(container: AppContainer) {
     ) { padding ->
         // Tab screens draw their shell header under the status bar themselves; every other screen
         // gets the full inset, consumed so nested insets padding doesn't add it a second time.
-        // Only the light auth screens want dark status-bar icons.
+        // Every screen puts the dark shell (or a camera) behind the system bars, so their icons stay light.
         val view = LocalView.current
         // Read from the applied theme, not the system flag: Profile's toggle can override the system.
         val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
-        val lightChrome = !darkTheme && currentRoute in listOf(Screen.Login.route, Screen.Register.route)
         if (!view.isInEditMode) {
             SideEffect {
                 val window = (view.context as Activity).window
                 WindowCompat.getInsetsController(window, view).apply {
-                    isAppearanceLightStatusBars = lightChrome
-                    isAppearanceLightNavigationBars = lightChrome
+                    isAppearanceLightStatusBars = false
+                    isAppearanceLightNavigationBars = false
                 }
             }
         }
@@ -191,7 +196,8 @@ fun HairConsultantNavHost(container: AppContainer) {
                         c.chatBotController,
                         c.authRepository,
                         c.userRepository,
-                        c.consultationRepository
+                        c.consultationRepository,
+                        c.scanPhotoStore
                     )
                 })
                 LaunchedEffect(Unit) { viewModel.activateChat() }
@@ -208,7 +214,8 @@ fun HairConsultantNavHost(container: AppContainer) {
                         c.authRepository,
                         c.userRepository,
                         c.consultationRepository,
-                        c.mediaStorageRepository
+                        c.mediaStorageRepository,
+                        c.scanPhotoStore
                     )
                 })
                 LaunchedEffect(Unit) { viewModel.activateChat() }
