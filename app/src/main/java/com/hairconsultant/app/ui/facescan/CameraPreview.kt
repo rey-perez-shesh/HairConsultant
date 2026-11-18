@@ -373,7 +373,6 @@ private class FaceScanCameraBinder(
             if (focal != null && focal > 0f && sensor != null && sensor.width > 0f) {
                 // Kept within ordinary phone lenses (about 17–50 mm equivalent) in case a device reports nonsense.
                 landmarkStore.focalToLongSide = (focal / maxOf(sensor.width, sensor.height)).coerceIn(0.5f, 1.45f)
-                Log.d(TAG, "Front lens ${focal}mm on a ${sensor.width}x${sensor.height}mm sensor: focal/long side ${landmarkStore.focalToLongSide}")
             }
         }.onFailure { Log.w(TAG, "Couldn't read the lens focal length", it) }
     }
@@ -394,7 +393,6 @@ private class FaceScanCameraBinder(
                     .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, exposureLocked)
                     .build()
             )
-            Log.d(TAG, "Exposure and white balance ${if (exposureLocked) "locked" else "unlocked"}")
         }.onFailure { Log.w(TAG, "Couldn't change the exposure lock", it) }
     }
 

@@ -127,12 +127,8 @@ class LandmarkFaceAnalyzer(
                 TAG,
                 "Face scan: ${measured.framesUsed}/${samples.size} usable frames, ${readings.size} hair/skin readings, " +
                     "${(measured.agreement * 100).toInt()}% frame agreement, median ${measured.metrics}, " +
-                    "last pose ${store.latestAngles()}, focal/long side ${store.focalToLongSide}"
+                    "last pose ${store.latestAngles()}"
             )
-            // Per-frame detail for the repeat-scan consistency check: what moved between frames and scans.
-            samples.filter(FaceAlignment::isUsable).takeLast(FaceAlignment.TARGET_FRAMES).forEach { sample ->
-                Log.d(TAG, "Frame: pose ${sample.angles}, ${sample.metrics}")
-            }
             val angles = store.latestAngles()
             return withContext(Dispatchers.Default) {
                 val bitmap = frame.bitmap
@@ -195,12 +191,6 @@ class LandmarkFaceAnalyzer(
         val hair = hairMask?.takeIf { length != null && length.length != HairLength.BALD }
         val skinOnly: ((Float, Float) -> Boolean)? = parsing?.let { it::isFaceSkin }
             ?: hairMask?.let { mask -> { x: Float, y: Float -> !mask.isHairAt(x, y) } }
-        if (parsing != null) logParsingCheck(parsing, points)
-        Log.d(
-            TAG,
-            "Reading: ${if (liveHair != null) "live" else "still"} hair mask ${hairMask?.width}x${hairMask?.height}, " +
-                "length $length, unfiltered ${hairMask?.let { HairLengthClassifier.classify(it, points) }}"
-        )
         return FrameReading(
             fullToMeshLength = hairline?.let { Hairline.fullToMeshLength(points, it, width, height) },
             foreheadToCheek = if (parsing != null && hairline != null) {
@@ -261,15 +251,6 @@ class LandmarkFaceAnalyzer(
             angles?.let { put("pitchDeg", it.pitchDeg); put("yawDeg", it.yawDeg) }
             put("focalToLongSide", focalToLongSide)
         }
-
-        Log.d(
-            TAG,
-            "Decided: ratios $metrics, hairline ${hairlineRatio?.let { "%.3f".format(it) }} -> $faceMetrics, " +
-                "model $probabilities -> ${face.shape} ${"%.2f".format(face.confidence)} (previous $previousShape, " +
-                "ML Kit $verifierShape); length $length; hair OKLab ${colorLab?.joinToString { "%.3f".format(it) }} -> $color; " +
-                "texture $texture${if (tooShortForTexture) " (too short)" else ""}; skin $skin; " +
-                "measurements $measurements"
-        )
 
         val tips = buildList {
             if (!bald && readings.isNotEmpty() && hairlineRatio == null) {
@@ -359,12 +340,6 @@ class LandmarkFaceAnalyzer(
         val width = points[FaceShapeClassifier.RIGHT_CHEEK].x - points[FaceShapeClassifier.LEFT_CHEEK].x
         val height = points[FaceShapeClassifier.CHIN].y - points[FaceShapeClassifier.FOREHEAD_TOP].y
         return (kotlin.math.abs(width) * height).coerceAtLeast(0.01f)
-    }
-
-    /** The multiclass model has no label metadata: log what it calls the cheeks and forehead, which should be face skin. */
-    private fun logParsingCheck(parsing: FaceParsing, points: List<LandmarkPoint>) {
-        val labels = intArrayOf(205, 425, 151).map { parsing.labelAt(points[it].x, points[it].y) }
-        Log.d(TAG, "Multiclass labels at cheeks/forehead: $labels (face skin is ${FaceParsing.FACE_SKIN}), mask ${parsing.width}x${parsing.height}")
     }
 
     companion object {

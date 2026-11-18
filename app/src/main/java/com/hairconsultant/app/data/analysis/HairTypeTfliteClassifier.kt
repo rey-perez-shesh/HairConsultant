@@ -62,7 +62,6 @@ class HairTypeTfliteClassifier(context: Context) : AutoCloseable {
         })
         // createBitmap hands back the frame itself when the box covers all of it.
         if (crop !== bitmap) crop.recycle()
-        Log.d(TAG, "plain ${plain.toList()} masked ${masked?.toList()} (order ${LABELS.toList()})")
         return LABELS.indices.associate { i ->
             HairTexture.valueOf(LABELS[i]) to (masked?.let { (plain[i] + it[i]) / 2f } ?: plain[i])
         }

@@ -117,7 +117,6 @@ class FaceScanViewModel(
         viewModelScope.launch {
             try {
                 val result = faceAnalyzer.analyzeCameraFrame(previousShape = lastConfirmedFaceShape())
-                android.util.Log.i("ScanResultLog", result.toString())
                 chatBot.setOpen(true)
                 _uiState.update { it.copy(stage = FaceScanStage.CONFIRM_RESULT, scanResult = result) }
                 chatBot.pushBotMessage(
