@@ -64,6 +64,8 @@ class DeepArCurtainsSession(
     private var surfaceAttached: SurfaceView? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var initWatchdog: Runnable? = null
+    /** Blurs the user's real hair out of each frame so only the 3D hair shows. */
+    private var hairEraser: HairEraser? = null
 
     fun start(surfaceView: SurfaceView) {
         if (released.get()) return
@@ -82,6 +84,12 @@ class DeepArCurtainsSession(
         if (activity == null) {
             onError("DeepAR needs an Activity context")
             return
+        }
+
+        if (HairEraser.ENABLED) {
+            hairEraser = runCatching { HairEraser(context) }
+                .onFailure { Log.w(TAG, "Hair eraser unavailable: ${it.message}") }
+                .getOrNull()
         }
 
         onStatus("Creating DeepAR engine…")
@@ -134,6 +142,8 @@ class DeepArCurtainsSession(
 
         // Camera first — Face Scan needs it as soon as this Activity finishes.
         releaseCamera()
+        hairEraser?.close()
+        hairEraser = null
 
         surfaceAttached?.holder?.removeCallback(this)
         surfaceAttached = null
@@ -271,6 +281,18 @@ class DeepArCurtainsSession(
             }
             dest.put(src)
             dest.position(0)
+            hairEraser?.let { eraser ->
+                runCatching {
+                    eraser.process(
+                        dest,
+                        image.width,
+                        image.height,
+                        plane.rowStride,
+                        image.imageInfo.rotationDegrees
+                    )
+                }.onFailure { Log.w(TAG, "Hair eraser skipped a frame: ${it.message}") }
+                dest.position(0)
+            }
             ar.receiveFrame(
                 dest,
                 image.width,
