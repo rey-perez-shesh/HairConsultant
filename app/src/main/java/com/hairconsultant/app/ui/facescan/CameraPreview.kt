@@ -1,5 +1,6 @@
 ﻿package com.hairconsultant.app.ui.facescan
 
+import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CaptureRequest
 import android.os.Handler
 import android.os.Looper
@@ -8,6 +9,7 @@ import android.view.View
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
@@ -342,6 +344,7 @@ private class FaceScanCameraBinder(
             boundPreviewOnly = true
             boundWithAnalysis = true
             Log.i(TAG, "Full camera bound ($reason)")
+            camera?.let(::readFocalLength)
             if (exposureLocked) applyExposureLock()
             if (!landmarker.isReady) {
                 landmarkStore.publishEmpty("Face guide failed to start")
@@ -354,6 +357,25 @@ private class FaceScanCameraBinder(
                 }
             }, 200L)
         }
+    }
+
+    /**
+     * The front lens's focal length over the sensor's long side, which the face measurement's
+     * perspective correction needs. Assumes the analysis frames span the sensor's long side, as
+     * CameraX's default 4:3 analysis stream does on 4:3 sensors.
+     */
+    @OptIn(ExperimentalCamera2Interop::class)
+    private fun readFocalLength(camera: Camera) {
+        runCatching {
+            val info = Camera2CameraInfo.from(camera.cameraInfo)
+            val focal = info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()
+            val sensor = info.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+            if (focal != null && focal > 0f && sensor != null && sensor.width > 0f) {
+                // Kept within ordinary phone lenses (about 17–50 mm equivalent) in case a device reports nonsense.
+                landmarkStore.focalToLongSide = (focal / maxOf(sensor.width, sensor.height)).coerceIn(0.5f, 1.45f)
+                Log.d(TAG, "Front lens ${focal}mm on a ${sensor.width}x${sensor.height}mm sensor: focal/long side ${landmarkStore.focalToLongSide}")
+            }
+        }.onFailure { Log.w(TAG, "Couldn't read the lens focal length", it) }
     }
 
     fun setExposureLocked(locked: Boolean) {

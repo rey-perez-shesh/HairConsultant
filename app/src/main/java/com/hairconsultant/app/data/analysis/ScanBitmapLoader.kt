@@ -8,6 +8,8 @@ import android.net.Uri
 import android.os.Build
 import android.media.ExifInterface
 import java.io.ByteArrayInputStream
+import kotlin.math.hypot
+import kotlin.math.max
 
 internal object ScanBitmapLoader {
     fun fromUri(context: Context, uri: Uri): Bitmap {
@@ -34,6 +36,22 @@ internal object ScanBitmapLoader {
         } else {
             ensureArgb(bitmap)
         }
+    }
+
+    /**
+     * The lens's focal length over the photo's long side, from the EXIF 35 mm-equivalent focal
+     * length; null when the photo doesn't record one (screenshots, most shared photos).
+     */
+    fun focalToLongSide(context: Context, uri: Uri, width: Int, height: Int): Float? {
+        val equivalent = runCatching {
+            context.contentResolver.openInputStream(uri)?.use {
+                ExifInterface(it).getAttributeInt(ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, 0)
+            }
+        }.getOrNull() ?: 0
+        if (equivalent <= 0 || width <= 0 || height <= 0) return null
+        // 35 mm equivalents match the diagonal of a 36x24 mm frame, 43.27 mm. A cropped photo reads
+        // too short, so the result is kept within ordinary phone lenses (about 17–50 mm).
+        return (equivalent / 43.27f * hypot(width.toFloat(), height.toFloat()) / max(width, height)).coerceIn(0.5f, 1.45f)
     }
 
     private fun ensureArgb(bitmap: Bitmap): Bitmap =

@@ -6,10 +6,11 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 
 /**
- * How far the head is turned away from facing the camera, in degrees. Only magnitudes matter to
- * the face-shape scan, so signs aren't normalized (the front camera image is mirrored anyway).
- *  - [yawDeg]: turned left/right
- *  - [pitchDeg]: tilted up/down (nodding)
+ * How far the head is turned away from facing the camera, in degrees.
+ *  - [yawDeg]: turned left/right; sign not normalized (the front camera image is mirrored)
+ *  - [pitchDeg]: tilted up/down (nodding); positive is the chin raised toward the camera, which
+ *    the perspective correction in [FaceShapeClassifier.measure] relies on (on the phone, the jaw
+ *    measured wider as this grew)
  *  - [rollDeg]: tilted sideways (ear toward shoulder)
  */
 data class HeadAngles(val yawDeg: Float, val pitchDeg: Float, val rollDeg: Float) {

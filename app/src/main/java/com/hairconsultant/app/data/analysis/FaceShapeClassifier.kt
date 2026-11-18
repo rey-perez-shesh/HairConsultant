@@ -4,6 +4,8 @@ import com.hairconsultant.app.domain.model.FaceShape
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.sin
 
 data class LandmarkPoint(val x: Float, val y: Float)
 
@@ -103,37 +105,58 @@ object FaceShapeClassifier {
     /** How far the measured forehead may move the length ratio, at most: hair over the forehead moves between sessions. */
     private const val HAIRLINE_MAX_EFFECT = 0.04f
 
+    /**
+     * Focal length over the image's long side when the camera doesn't report one: a 26 mm-equivalent
+     * phone lens. The perspective correction tolerates ±30% here (checked on MediaPipe's canonical face).
+     */
+    const val TYPICAL_FOCAL_TO_LONG_SIDE = 0.75f
+
     /** The four width/length ratios the shape is decided from, or null if the face is too small to measure. */
     fun measure(
         points: List<LandmarkPoint>,
         imageWidth: Int,
         imageHeight: Int,
         /** This frame's head pose, to undo how a slight turn or nod changes the face's proportions on screen. */
-        angles: HeadAngles? = null
+        angles: HeadAngles? = null,
+        /** The lens's focal length over the image's long side, for undoing perspective. */
+        focalToLongSide: Float = TYPICAL_FOCAL_TO_LONG_SIDE
     ): FaceShapeMetrics? {
         if (imageWidth <= 0 || imageHeight <= 0) return null
         if (required.any { it >= points.size }) return null
 
         val w = imageWidth.toFloat()
         val h = imageHeight.toFloat()
-        val length = dist(points[FOREHEAD_TOP], points[CHIN], w, h)
-        val cheek = dist(points[LEFT_CHEEK], points[RIGHT_CHEEK], w, h)
-        val jaw = dist(points[LEFT_JAW], points[RIGHT_JAW], w, h)
-        val temple = dist(points[LEFT_TEMPLE], points[RIGHT_TEMPLE], w, h)
+        // Perspective: at arm's length, a nod brings one end of the face closer to the lens, and
+        // that end looks bigger (chin up widens the jaw, chin down the temples), enough to swap
+        // two neighbouring shapes within ±5°. Each point is scaled back by how far the nod moved
+        // it toward the camera: its height from the face's middle times sin(pitch), over the
+        // focal length in pixels. The face's distance cancels out, so it isn't needed.
+        val tilt = angles?.let { sinDeg(it.pitchDeg) / (focalToLongSide * max(w, h)) } ?: 0f
+        val middleY = (points[FOREHEAD_TOP].y + points[CHIN].y) / 2f
+        fun at(index: Int): LandmarkPoint {
+            val point = points[index]
+            val scale = 1f - (point.y - middleY) * h * tilt
+            return LandmarkPoint(0.5f + (point.x - 0.5f) * scale, 0.5f + (point.y - 0.5f) * scale)
+        }
+
+        val length = dist(at(FOREHEAD_TOP), at(CHIN), w, h)
+        val cheek = dist(at(LEFT_CHEEK), at(RIGHT_CHEEK), w, h)
+        val jaw = dist(at(LEFT_JAW), at(RIGHT_JAW), w, h)
+        val temple = dist(at(LEFT_TEMPLE), at(RIGHT_TEMPLE), w, h)
         if (length < 8f || cheek < 8f || jaw < 8f || temple < 8f) return null
 
         // Turning the head narrows the face on screen by cos(yaw), nodding shortens it by
         // cos(pitch); widths shrink together, so only the length-to-width ratio needs undoing.
         val poseCorrection = angles?.let { cosDeg(it.yawDeg) / cosDeg(it.pitchDeg) } ?: 1f
-        val jawAngle = (angleAt(points[LEFT_JAW], points[LEFT_CHEEK], points[CHIN], w, h) +
-            angleAt(points[RIGHT_JAW], points[RIGHT_CHEEK], points[CHIN], w, h)) / 2f
+        val jawAngle = (angleAt(at(LEFT_JAW), at(LEFT_CHEEK), at(CHIN), w, h) +
+            angleAt(at(RIGHT_JAW), at(RIGHT_CHEEK), at(CHIN), w, h)) / 2f
         return FaceShapeMetrics(
             lengthToWidth = length / cheek * poseCorrection,
             jawToCheek = jaw / cheek,
             foreheadToJaw = temple / jaw,
             foreheadToCheek = temple / cheek,
             jawAngleDeg = jawAngle,
-            chinToJaw = dist(points[LEFT_CHIN], points[RIGHT_CHIN], w, h) / jaw
+            chinToJaw = dist(at(LEFT_CHIN), at(RIGHT_CHIN), w, h) / jaw
         )
     }
 
@@ -215,6 +238,8 @@ object FaceShapeClassifier {
     private fun z(value: Float, mean: Float, sd: Float): Float = (value - mean) / sd
 
     private fun cosDeg(degrees: Float): Float = cos(Math.toRadians(degrees.toDouble())).toFloat()
+
+    private fun sinDeg(degrees: Float): Float = sin(Math.toRadians(degrees.toDouble())).toFloat()
 
     private fun dist(a: LandmarkPoint, b: LandmarkPoint, width: Float, height: Float): Float =
         hypot((a.x - b.x) * width, (a.y - b.y) * height)

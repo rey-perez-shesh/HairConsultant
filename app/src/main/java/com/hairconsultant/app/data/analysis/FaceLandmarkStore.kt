@@ -68,6 +68,9 @@ class FaceLandmarkStore {
     /** Recent frames' face measurements, oldest first, so a scan can combine several (see [FaceAlignment]). */
     private val recentSamples = ArrayDeque<FaceFrameSample>()
 
+    /** The live camera's focal length over the frame's long side, set once the camera is bound; for undoing perspective. */
+    @Volatile var focalToLongSide: Float = FaceShapeClassifier.TYPICAL_FOCAL_TO_LONG_SIDE
+
     fun publishFrame(
         points: List<LandmarkPoint>,
         bitmap: Bitmap?,
@@ -75,7 +78,7 @@ class FaceLandmarkStore {
         height: Int,
         angles: HeadAngles? = null
     ) {
-        val metrics = FaceShapeClassifier.measure(points, width, height, angles)
+        val metrics = FaceShapeClassifier.measure(points, width, height, angles, focalToLongSide)
         val mouthOpen = FaceShapeClassifier.isMouthOpen(points, width, height)
         synchronized(lock) {
             latestPoints = points

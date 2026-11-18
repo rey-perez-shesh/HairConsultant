@@ -3,7 +3,9 @@ package com.hairconsultant.app.data.analysis
 import com.hairconsultant.app.data.analysis.FaceShapeClassifier.POPULATION_MEAN
 import com.hairconsultant.app.data.analysis.FaceShapeClassifier.POPULATION_SD
 import com.hairconsultant.app.domain.model.FaceShape
+import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.sin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -70,6 +72,21 @@ class FaceShapeClassifierTest {
     }
 
     @Test
+    fun aNodMeasuresTheSameOnceItsPerspectiveIsUndone() {
+        val level = FaceShapeClassifier.measure(rendered(pitchDeg = 0f), 1000, 1000, HeadAngles(0f, 0f, 0f))!!
+        for (pitch in listOf(-6f, 6f)) {
+            val points = rendered(pitch)
+            val uncorrected = FaceShapeClassifier.measure(points, 1000, 1000)!!
+            val corrected = FaceShapeClassifier.measure(points, 1000, 1000, HeadAngles(0f, pitch, 0f), focalToLongSide = 0.75f)!!
+            // Uncorrected, a 6° nod moves the jaw by over half the spread between people.
+            assertTrue(abs(uncorrected.jawToCheek - level.jawToCheek) > 0.5f * POPULATION_SD.jawToCheek)
+            assertEquals(level.jawToCheek, corrected.jawToCheek, 0.1f * POPULATION_SD.jawToCheek)
+            assertEquals(level.foreheadToJaw, corrected.foreheadToJaw, 0.1f * POPULATION_SD.foreheadToJaw)
+            assertEquals(level.lengthToWidth, corrected.lengthToWidth, 0.2f * POPULATION_SD.lengthToWidth)
+        }
+    }
+
+    @Test
     fun aWideLowJawHasASmallerJawAngleAndAPointedChinASmallerChinWidth() {
         val face = face()
         val square = face.toMutableList().apply {
@@ -115,6 +132,35 @@ class FaceShapeClassifierTest {
         jawToCheek = POPULATION_MEAN.jawToCheek + z * POPULATION_SD.jawToCheek,
         foreheadToCheek = POPULATION_MEAN.foreheadToCheek + z * POPULATION_SD.foreheadToCheek
     )
+
+    /**
+     * MediaPipe's canonical face (cm, +y up, +z toward the camera) 35 cm from a lens whose focal
+     * length is 0.75 of a 1000 px frame, nodded by [pitchDeg]: positive brings the chin closer.
+     */
+    private fun rendered(pitchDeg: Float): List<LandmarkPoint> {
+        val canonical = mapOf(
+            FaceShapeClassifier.FOREHEAD_TOP to Triple(0.00, 8.26, 4.48),
+            FaceShapeClassifier.CHIN to Triple(0.00, -9.40, 4.26),
+            FaceShapeClassifier.LEFT_CHEEK to Triple(-7.66, 0.67, -2.44),
+            FaceShapeClassifier.RIGHT_CHEEK to Triple(7.66, 0.67, -2.44),
+            FaceShapeClassifier.LEFT_JAW to Triple(-5.94, -6.22, -0.63),
+            FaceShapeClassifier.RIGHT_JAW to Triple(5.94, -6.22, -0.63),
+            FaceShapeClassifier.LEFT_TEMPLE to Triple(-7.74, 2.36, -2.01),
+            FaceShapeClassifier.RIGHT_TEMPLE to Triple(7.74, 2.36, -2.01),
+            FaceShapeClassifier.LEFT_CHIN to Triple(-3.21, -8.53, 2.80),
+            FaceShapeClassifier.RIGHT_CHIN to Triple(3.21, -8.53, 2.80)
+        )
+        val angle = Math.toRadians(pitchDeg.toDouble())
+        val points = MutableList(478) { LandmarkPoint(0.5f, 0.5f) }
+        for ((index, position) in canonical) {
+            val (x, y, z) = position
+            val turnedY = y * cos(angle) + z * sin(angle)
+            val turnedZ = z * cos(angle) - y * sin(angle)
+            val depth = 35.0 - turnedZ
+            points[index] = LandmarkPoint((0.5 + 0.75 * x / depth).toFloat(), (0.5 - 0.75 * turnedY / depth).toFloat())
+        }
+        return points
+    }
 
     private fun face(): List<LandmarkPoint> {
         val points = MutableList(478) { LandmarkPoint(0.5f, 0.5f) }

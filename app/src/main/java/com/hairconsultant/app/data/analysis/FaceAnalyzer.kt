@@ -127,7 +127,7 @@ class LandmarkFaceAnalyzer(
                 TAG,
                 "Face scan: ${measured.framesUsed}/${samples.size} usable frames, ${readings.size} hair/skin readings, " +
                     "${(measured.agreement * 100).toInt()}% frame agreement, median ${measured.metrics}, " +
-                    "last pose ${store.latestAngles()}"
+                    "last pose ${store.latestAngles()}, focal/long side ${store.focalToLongSide}"
             )
             // Per-frame detail for the repeat-scan consistency check: what moved between frames and scans.
             samples.filter(FaceAlignment::isUsable).takeLast(FaceAlignment.TARGET_FRAMES).forEach { sample ->
@@ -139,7 +139,7 @@ class LandmarkFaceAnalyzer(
                 if (readings.isEmpty() && bitmap != null) {
                     readings += read(frame.points, frame.imageWidth, frame.imageHeight, bitmap, frame.hairMask)
                 }
-                decide(measured.metrics, measured.agreement, readings, bitmap, angles, previousShape)
+                decide(measured.metrics, measured.agreement, readings, bitmap, angles, store.focalToLongSide, previousShape)
             }
         } finally {
             lastFrame?.bitmap?.recycle()
@@ -158,11 +158,13 @@ class LandmarkFaceAnalyzer(
             // an angled photo is refused rather than measured.
             FaceAlignment.photoRejection(detection.angles)?.let { throw NoFaceDetectedException(it) }
             FaceGuide.photoRejection(detection.points, bitmap.width)?.let { throw NoFaceDetectedException(it) }
-            val metrics = FaceShapeClassifier.measure(detection.points, bitmap.width, bitmap.height, detection.angles)
+            val focal = ScanBitmapLoader.focalToLongSide(context, imageUri, bitmap.width, bitmap.height)
+                ?: FaceShapeClassifier.TYPICAL_FOCAL_TO_LONG_SIDE
+            val metrics = FaceShapeClassifier.measure(detection.points, bitmap.width, bitmap.height, detection.angles, focal)
                 ?: throw NoFaceDetectedException("I found a face but couldn't measure its shape. Move a bit closer and try again.")
             return withContext(Dispatchers.Default) {
                 val reading = read(detection.points, bitmap.width, bitmap.height, bitmap, liveHair = null)
-                decide(metrics, agreement = null, listOf(reading), bitmap, detection.angles, previousShape = null)
+                decide(metrics, agreement = null, listOf(reading), bitmap, detection.angles, focal, previousShape = null)
             }
         } finally {
             bitmap.recycle()
@@ -222,6 +224,7 @@ class LandmarkFaceAnalyzer(
         readings: List<FrameReading>,
         verifierBitmap: Bitmap?,
         angles: HeadAngles?,
+        focalToLongSide: Float,
         previousShape: FaceShape?
     ): ScanResult {
         val hairlineRatio = readings.mapNotNull { it.fullToMeshLength }.takeIf { it.isNotEmpty() }?.median()
@@ -229,7 +232,7 @@ class LandmarkFaceAnalyzer(
         val probabilities = faceShapeCnn.probabilities(faceMetrics)
         val face = FaceShapeClassifier.decide(faceMetrics, probabilities, previousShape)
         val shapeConfidence = agreement?.let { FaceAlignment.adjustForAgreement(face.confidence, it) } ?: face.confidence
-        val verifierShape = verifierBitmap?.let { mlKitVerifier.measure(it, angles) }?.let(::modelShape)
+        val verifierShape = verifierBitmap?.let { mlKitVerifier.measure(it, angles, focalToLongSide) }?.let(::modelShape)
         val agreed = verifierShape == null || verifierShape == face.shape
 
         val length = HairLengthClassifier.combine(readings.mapNotNull { it.hairLength })
@@ -256,6 +259,7 @@ class LandmarkFaceAnalyzer(
             foreheadWidth?.let { put("foreheadSkinToCheek", it) }
             skin?.let { put("skinIta", it.ita); put("skinHue", it.hue) }
             angles?.let { put("pitchDeg", it.pitchDeg); put("yawDeg", it.yawDeg) }
+            put("focalToLongSide", focalToLongSide)
         }
 
         Log.d(

@@ -21,7 +21,7 @@ class MlKitFaceMeshVerifier(context: Context) : AutoCloseable {
     )
 
     /** [angles]: the head pose MediaPipe read for the same image (ML Kit's mesh doesn't report one). */
-    suspend fun measure(bitmap: Bitmap, angles: HeadAngles?): FaceShapeMetrics? {
+    suspend fun measure(bitmap: Bitmap, angles: HeadAngles?, focalToLongSide: Float): FaceShapeMetrics? {
         return runCatching {
             val image = InputImage.fromBitmap(bitmap, 0)
             val meshes = detector.process(image).await()
@@ -36,7 +36,7 @@ class MlKitFaceMeshVerifier(context: Context) : AutoCloseable {
                     points[index] = LandmarkPoint(pos.x / width, pos.y / height)
                 }
             }
-            FaceShapeClassifier.measure(points, bitmap.width, bitmap.height, angles)
+            FaceShapeClassifier.measure(points, bitmap.width, bitmap.height, angles, focalToLongSide)
         }.onFailure { error ->
             Log.w(TAG, "ML Kit face mesh failed", error)
         }.getOrNull()
