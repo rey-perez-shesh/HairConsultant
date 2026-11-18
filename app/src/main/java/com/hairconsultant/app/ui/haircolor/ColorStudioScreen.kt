@@ -107,6 +107,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 
@@ -296,8 +297,8 @@ private fun HairSurface(surface: GLSurfaceView, renderer: HairColorRenderer) {
 }
 
 /**
- * Front camera → hair segmenter → [onPicture], one frame at a time: a frame is only handed on
- * together with the mask computed from it.
+ * Front camera → [onPicture] every frame, each with the newest hair mask. The segmenter runs on
+ * a small copy alongside, so a slow mask never holds the picture back.
  *
  * The camera is bound once this screen is resumed, i.e. after the screen it came from has been
  * disposed. Face Scan's camera releases with `unbindAll()` on dispose, which would otherwise take
@@ -310,13 +311,16 @@ private fun CameraSource(onPicture: (HairFrame) -> Unit, onStatus: (StudioStatus
     DisposableEffect(lifecycleOwner) {
         val executor = Executors.newSingleThreadExecutor()
         val main = Handler(Looper.getMainLooper())
-        val inFlight = AtomicReference<Bitmap?>()
+        // Every camera frame is shown straight away with the newest mask, instead of waiting for
+        // the detector, so the preview runs at camera speed. The mask may be a frame or two old;
+        // the renderer snaps it to the current picture's edges and steadies it, which hides that.
+        val latestMask = AtomicReference<HairMask?>()
+        val detecting = AtomicBoolean(false)
         val tracker = HairTracker(patience = 4, onStatus = onStatus)
         var restart = true
         val segmenter = LiveHairSegmenter(context.applicationContext, softConfidence = true) { mask ->
-            val bitmap = inFlight.getAndSet(null) ?: return@LiveHairSegmenter
-            onPicture(tracker.frame(bitmap, mask, restart))
-            restart = false
+            if (mask != null) latestMask.set(mask)
+            detecting.set(false)
         }
         if (!segmenter.isReady) onStatus(StudioStatus.UNAVAILABLE)
 
@@ -336,14 +340,30 @@ private fun CameraSource(onPicture: (HairFrame) -> Unit, onStatus: (StudioStatus
                 val raw = proxy.toBitmap()
                 val upright = rotateAndMirror(raw, proxy.imageInfo.rotationDegrees, mirror = true)
                 if (upright !== raw) raw.recycle()
-                when {
+                if (!segmenter.isReady) {
                     // No detector on this device: still show the camera, just undyed.
-                    !segmenter.isReady -> onPicture(HairFrame(upright, null, 0, 0, HairStats.Default))
-                    !inFlight.compareAndSet(null, upright) -> upright.recycle()
-                    !segmenter.detect(upright) -> {
-                        inFlight.set(null)
-                        upright.recycle()
-                    }
+                    onPicture(HairFrame(upright, null, 0, 0, HairStats.Default))
+                    return@setAnalyzer
+                }
+                // The detector gets a small copy: its model works at 512 px anyway, and a small
+                // mask is far cheaper to read back. The renderer scales it up against the picture.
+                if (detecting.compareAndSet(false, true)) {
+                    val scale = SEGMENT_SIDE.toFloat() / max(upright.width, upright.height)
+                    val small = Bitmap.createScaledBitmap(
+                        upright,
+                        max(1, (upright.width * scale).toInt()),
+                        max(1, (upright.height * scale).toInt()),
+                        true
+                    )
+                    if (!segmenter.detect(small)) detecting.set(false)
+                }
+                val mask = latestMask.get()
+                if (mask == null) {
+                    // First mask not back yet: show the plain camera meanwhile.
+                    onPicture(HairFrame(upright, null, 0, 0, HairStats.Default, restart))
+                } else {
+                    onPicture(tracker.frame(upright, mask, restart))
+                    restart = false
                 }
             } finally {
                 proxy.close()
@@ -589,3 +609,6 @@ private const val TAG = "ColorStudio"
 
 /** Keeps a 12-megapixel photo from becoming a 48 MB texture; plenty for a phone screen. */
 private const val MAX_PHOTO_SIDE = 1600
+
+/** Long side of the copy sent to the live hair detector. */
+private const val SEGMENT_SIDE = 384

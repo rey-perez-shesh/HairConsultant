@@ -306,9 +306,12 @@ void main() {
 }
 """
 
-        // The segmenter's mask is soft but blobby, and it shimmers from frame to frame. Each tap of
-        // the mask is weighted by how close its picture brightness is to this pixel's, so the matte
-        // edge snaps to real edges in the picture (strands, hairline) instead of the mask's guess.
+        // The segmenter's mask is soft but blobby, it's computed on a small copy of the picture,
+        // and it shimmers from frame to frame. Each tap of the mask is weighted by how close its
+        // picture colour is to this pixel's (and by distance), so the matte edge follows real edges
+        // in the picture (strands, hairline) instead of the mask's coarse guess. The wide, gentle
+        // ramp at the end lets the dye fade out over the outer strands rather than stop at a line,
+        // which is what made the mask visible.
         const val MATTE_FRAGMENT = """#version 300 es
 precision mediump float;
 uniform sampler2D uFrame;
@@ -319,22 +322,21 @@ uniform float uRestart;
 in vec2 vUv;
 out vec4 outColor;
 
-float luma(vec2 uv) { return dot(texture(uFrame, uv).rgb, vec3(0.299, 0.587, 0.114)); }
-
 void main() {
-    float here = luma(vUv);
+    vec3 here = texture(uFrame, vUv).rgb;
     float sum = 0.0;
     float weight = 0.0;
-    for (int y = -1; y <= 1; y++) {
-        for (int x = -1; x <= 1; x++) {
-            vec2 uv = vUv + vec2(float(x), float(y)) * uTexel * 2.0;
-            float d = luma(uv) - here;
-            float w = exp(-d * d / 0.02);
+    for (int y = -2; y <= 2; y++) {
+        for (int x = -2; x <= 2; x++) {
+            vec2 off = vec2(float(x), float(y));
+            vec2 uv = vUv + off * uTexel * 1.5;
+            vec3 d = texture(uFrame, uv).rgb - here;
+            float w = exp(-dot(d, d) / 0.015) * exp(-dot(off, off) / 4.5);
             sum += texture(uMask, uv).r * w;
             weight += w;
         }
     }
-    float matte = smoothstep(0.3, 0.7, sum / weight);
+    float matte = smoothstep(0.35, 0.8, sum / weight);
     // Small frame-to-frame changes are flicker and get averaged away; big ones are the head
     // actually moving and are taken at once, so the matte never trails behind.
     float prev = texture(uPrev, vUv).r;
@@ -343,9 +345,13 @@ void main() {
 }
 """
 
-        // Port of HairColorMath.remapL / chromaScale. Change one, change the other.
+        // The lightness remap and chroma are a port of HairColorMath.remapL / chromaScale: change one,
+        // change the other. The smoothing (DETAIL) and the edge guard are shader-only.
         const val DYE_FRAGMENT = """#version 300 es
 precision highp float;
+// How much of the hair's fine light/dark detail survives the dye: 1 keeps all of it (and all the
+// camera grain), lower is silkier. 0.35 is close to the smooth look of social-app hair filters.
+const float DETAIL = 0.35;
 uniform sampler2D uFrame;
 uniform sampler2D uMatte;
 uniform vec2 uUvScale;
@@ -414,32 +420,47 @@ void main() {
     }
 
     float L = toOklab(src).x;
-    // The same pixel, blurred: contrast gain goes on this so it stretches the hair's broad
-    // light and dark, not the sensor noise riding on top of it.
-    vec2 r = uTexel * 2.5;
-    float base = (L
-        + toOklab(texture(uFrame, uv + vec2(r.x, r.y)).rgb).x
-        + toOklab(texture(uFrame, uv + vec2(-r.x, r.y)).rgb).x
-        + toOklab(texture(uFrame, uv + vec2(r.x, -r.y)).rgb).x
-        + toOklab(texture(uFrame, uv + vec2(-r.x, -r.y)).rgb).x) * 0.2;
+    // The same pixel, smoothed over two rings of taps. Contrast gain goes on this so it stretches
+    // the hair's broad light and dark, not the sensor noise riding on top of it.
+    vec2 r1 = uTexel * 1.5;
+    vec2 r2 = uTexel * 3.5;
+    float near = toOklab(texture(uFrame, uv + vec2(r1.x, 0.0)).rgb).x
+        + toOklab(texture(uFrame, uv - vec2(r1.x, 0.0)).rgb).x
+        + toOklab(texture(uFrame, uv + vec2(0.0, r1.y)).rgb).x
+        + toOklab(texture(uFrame, uv - vec2(0.0, r1.y)).rgb).x;
+    float far = toOklab(texture(uFrame, uv + r2).rgb).x
+        + toOklab(texture(uFrame, uv - r2).rgb).x
+        + toOklab(texture(uFrame, uv + vec2(r2.x, -r2.y)).rgb).x
+        + toOklab(texture(uFrame, uv + vec2(-r2.x, r2.y)).rgb).x;
+    float base = L * 0.2 + near * 0.12 + far * 0.08;
+    // Dye a mostly-smoothed lightness, with only part of the fine detail added back. In dim rooms
+    // the camera's grain dominates that detail, and dyeing it as-is is what looked speckled.
+    float Ls = base + (L - base) * DETAIL;
 
     float sd = max(uStdL, 0.02);
     float lift = min(uShadeLab.x - uMeanL, uMaxLift);
     float moved;
     if (lift >= 0.0) {
         float shadow = smoothstep(sd, 3.0 * sd, uMeanL - base);
-        moved = L + lift * (1.0 - 0.45 * shadow) + (base - uMeanL) * (uGain - 1.0);
+        moved = Ls + lift * (1.0 - 0.45 * shadow) + (base - uMeanL) * (uGain - 1.0);
     } else {
-        moved = L * ((uMeanL + lift) / max(uMeanL, 0.001));
+        moved = Ls * ((uMeanL + lift) / max(uMeanL, 0.001));
     }
-    float spec = smoothstep(uMeanL + 2.0 * sd, uMeanL + 4.0 * sd, L);
-    float newL = clamp(mix(moved, max(moved, L), spec), 0.0, 1.0);
+    float spec = smoothstep(uMeanL + 2.0 * sd, uMeanL + 4.0 * sd, Ls);
+    float newL = clamp(mix(moved, max(moved, Ls), spec), 0.0, 1.0);
     float chroma = clamp(newL / max(uShadeLab.x, 0.001), 0.0, 1.25)
         * (1.0 - 0.7 * spec)
         * (1.0 - smoothstep(0.9, 1.0, newL));
 
+    // Edge guard: near the rim of the matte, pixels much brighter than the hair (a light wall,
+    // the forehead) are the mask overshooting. Dyeing them is what drew a pale halo round the head.
+    float hairLike = 1.0 - smoothstep(uMeanL + 2.5 * sd, uMeanL + 5.0 * sd, base);
+    amount *= mix(hairLike, 1.0, smoothstep(0.85, 1.0, matte));
+
+    // Dye takes a touch less on the darkest strands, which keeps a little natural variation.
     vec3 dyed = fromOklab(vec3(newL, uShadeLab.yz * chroma));
-    outColor = vec4(mix(src, dyed, amount), 1.0);
+    float takeUp = mix(0.9, 0.98, smoothstep(uMeanL - 2.0 * sd, uMeanL, base));
+    outColor = vec4(mix(src, dyed, amount * takeUp), 1.0);
 }
 """
     }
