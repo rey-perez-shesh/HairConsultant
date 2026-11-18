@@ -16,5 +16,8 @@ interface AuthRepository {
 
     suspend fun register(email: String, password: String): Result<AuthUser>
 
+    /** Emails a reset link; succeeds for unknown addresses too, so it never reveals who has an account. */
+    suspend fun sendPasswordReset(email: String): Result<Unit>
+
     fun logout()
 }

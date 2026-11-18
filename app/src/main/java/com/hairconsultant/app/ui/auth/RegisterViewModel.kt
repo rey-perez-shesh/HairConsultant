@@ -85,7 +85,7 @@ class RegisterViewModel(
 
     private fun validate(state: RegisterUiState): String? = when {
         state.email.isBlank() -> "Please enter your email."
-        !EMAIL_REGEX.matches(state.email.trim()) -> "Please enter a valid email address containing \"@\"."
+        !isValidEmail(state.email) -> "Please enter a valid email address containing \"@\"."
         passwordRules(state.password).any { !it.met } ->
             passwordRules(state.password).first { !it.met }.error
         state.password != state.confirmPassword -> "Passwords do not match."
@@ -94,11 +94,12 @@ class RegisterViewModel(
         state.gender == null -> "Please select your gender."
         else -> null
     }
-
-    private companion object {
-        val EMAIL_REGEX = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
-    }
 }
+
+private val EMAIL_REGEX = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
+
+/** Something@domain.tld, ignoring surrounding spaces: the check Register and the password reset share. */
+fun isValidEmail(email: String): Boolean = EMAIL_REGEX.matches(email.trim())
 
 /** One password requirement: [label] for the live checklist, [error] for the message on submit. */
 data class PasswordRule(val label: String, val error: String, val met: Boolean)

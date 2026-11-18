@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -30,6 +32,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -86,13 +92,21 @@ fun LoginScreen(
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth()
             )
+            // Neutral like "Create one": oxblood stays on Log In.
+            TextButton(
+                onClick = viewModel::openPasswordReset,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text("Forgot password?")
+            }
 
             uiState.errorMessage?.let { error ->
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = viewModel::login,
                 enabled = !uiState.isLoading,
@@ -116,4 +130,80 @@ fun LoginScreen(
             }
         }
     }
+
+    uiState.reset?.let { reset ->
+        PasswordResetDialog(
+            state = reset,
+            onEmailChange = viewModel::onResetEmailChange,
+            onSend = viewModel::sendPasswordReset,
+            onDismiss = viewModel::closePasswordReset
+        )
+    }
+}
+
+@Composable
+private fun PasswordResetDialog(
+    state: ResetPasswordState,
+    onEmailChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sentTo = state.sentTo
+    if (sentTo != null) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Check your email") },
+            text = {
+                Text("If an account uses $sentTo, a reset link is on its way. Check spam if you don't see it.")
+            },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } }
+        )
+        return
+    }
+    AlertDialog(
+        onDismissRequest = { if (!state.isSending) onDismiss() },
+        title = { Text("Reset your password") },
+        text = {
+            Column {
+                Text("We'll email you a link to set a new one.")
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = state.email,
+                    onValueChange = onEmailChange,
+                    label = { Text("Email") },
+                    singleLine = true,
+                    enabled = !state.isSending,
+                    isError = state.error != null,
+                    supportingText = state.error?.let { error ->
+                        { Text(error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { onSend() }),
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSend, enabled = !state.isSending) {
+                if (state.isSending) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp).semantics { contentDescription = "Sending" },
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text("Send link")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !state.isSending,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
+            ) {
+                Text("Cancel")
+            }
+        }
+    )
 }

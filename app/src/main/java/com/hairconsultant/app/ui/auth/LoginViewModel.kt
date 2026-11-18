@@ -17,7 +17,17 @@ data class LoginUiState(
     val isPasswordVisible: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
-    val isLoggedIn: Boolean = false
+    val isLoggedIn: Boolean = false,
+    /** The forgot-password pop-up, or null while it's closed. */
+    val reset: ResetPasswordState? = null
+)
+
+/** Asks for the email until [sentTo] is set, then shows "Check your email" for that address. */
+data class ResetPasswordState(
+    val email: String,
+    val isSending: Boolean = false,
+    val error: String? = null,
+    val sentTo: String? = null
 )
 
 class LoginViewModel(
@@ -31,6 +41,36 @@ class LoginViewModel(
     fun onEmailChange(value: String) = _uiState.update { it.copy(email = value, errorMessage = null) }
     fun onPasswordChange(value: String) = _uiState.update { it.copy(password = value, errorMessage = null) }
     fun togglePasswordVisibility() = _uiState.update { it.copy(isPasswordVisible = !it.isPasswordVisible) }
+
+    fun openPasswordReset() = _uiState.update { it.copy(reset = ResetPasswordState(email = it.email.trim())) }
+    fun onResetEmailChange(value: String) = updateReset { it.copy(email = value, error = null) }
+    fun closePasswordReset() = _uiState.update { it.copy(reset = null) }
+
+    fun sendPasswordReset() {
+        val reset = _uiState.value.reset ?: return
+        if (reset.isSending) return
+        val email = reset.email.trim()
+        val invalid = when {
+            email.isEmpty() -> "Enter the email you signed up with."
+            !isValidEmail(email) -> "That email address isn't valid."
+            else -> null
+        }
+        if (invalid != null) {
+            updateReset { it.copy(error = invalid) }
+            return
+        }
+        updateReset { it.copy(isSending = true, error = null) }
+        viewModelScope.launch {
+            val result = authRepository.sendPasswordReset(email)
+            updateReset {
+                it.copy(isSending = false, sentTo = email.takeIf { result.isSuccess }, error = result.exceptionOrNull()?.message)
+            }
+        }
+    }
+
+    /** No-op once the pop-up is closed, so a send finishing after Cancel doesn't reopen it. */
+    private fun updateReset(change: (ResetPasswordState) -> ResetPasswordState) =
+        _uiState.update { state -> state.copy(reset = state.reset?.let(change)) }
 
     fun login() {
         val state = _uiState.value
