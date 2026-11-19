@@ -7,12 +7,17 @@ import com.hairconsultant.app.data.repository.ConsultationRepository
 import com.hairconsultant.app.data.repository.FeedbackRepository
 import com.hairconsultant.app.data.repository.UserRepository
 import com.hairconsultant.app.domain.model.Consultation
+import com.hairconsultant.app.domain.model.ConsultationSource
+import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.User
+import com.hairconsultant.app.domain.model.arFilterFavoriteId
+import com.hairconsultant.app.ui.facescan.HairstyleArCatalog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -28,6 +33,15 @@ private data class ProfileFormState(
 )
 
 enum class ProfileTab { HISTORY, FAVORITES }
+
+/**
+ * The style a Face Scan session tried on with a live AR filter (the kind the Try-on filters shelf
+ * holds), or null for anything else: an upload, a saved look, a scan with no try-on.
+ */
+internal val Consultation.arTryOnHaircut: Haircut?
+    get() = selectedHaircut?.takeIf {
+        source == ConsultationSource.FACE_SCAN && !isSavedLook && HairstyleArCatalog.shouldUseDeepAr(it)
+    }
 
 data class ProfileUiState(
     val user: User? = null,
@@ -91,7 +105,13 @@ class ProfileViewModel(
         // Saved looks follow the account: pull in any saved on another install of the app.
         viewModelScope.launch {
             authRepository.currentUser.collectLatest { user ->
-                user?.let { consultationRepository.restoreSavedLooks(it.uid) }
+                val uid = user?.uid ?: return@collectLatest
+                consultationRepository.restoreSavedLooks(uid)
+                // Before History's heart saved a try-on's filter, it filed the whole session under
+                // Saved looks; move those to the Try-on filters shelf where they belong.
+                consultationRepository.observeFavorites(uid).first()
+                    .filter { it.arTryOnHaircut != null }
+                    .forEach { session -> saveTryOnFilter(session) }
             }
         }
     }
@@ -109,6 +129,30 @@ class ProfileViewModel(
                 consultationRepository.setFavorite(consultation.id, !consultation.isFavorite)
             }
         }
+    }
+
+    /**
+     * The heart on a History row. A Face Scan session that tried a style on with a live AR filter
+     * favorites that filter, like the heart inside the try-on, so it lands on the Try-on filters
+     * shelf; [filterSaved] says whether it's already there. Any other session is kept whole as a
+     * saved look ([toggleFavorite]).
+     */
+    fun toggleHistoryFavorite(consultation: Consultation, filterSaved: Boolean) {
+        val haircut = consultation.arTryOnHaircut ?: return toggleFavorite(consultation)
+        viewModelScope.launch {
+            if (filterSaved) {
+                consultationRepository.removeSavedLook(arFilterFavoriteId(consultation.userId, haircut.id))
+            } else {
+                saveTryOnFilter(consultation)
+            }
+        }
+    }
+
+    /** Saves the session's style as a try-on filter, and takes the session itself out of Saved looks if it was there. */
+    private suspend fun saveTryOnFilter(session: Consultation) {
+        val haircut = session.arTryOnHaircut ?: return
+        consultationRepository.saveArFilter(session.userId, haircut.id)
+        if (session.isFavorite) consultationRepository.setFavorite(session.id, false)
     }
 
     fun submitFeedback() {

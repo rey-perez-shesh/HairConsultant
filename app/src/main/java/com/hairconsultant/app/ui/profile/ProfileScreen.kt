@@ -74,6 +74,7 @@ import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.ScanResult
 import com.hairconsultant.app.domain.model.User
+import com.hairconsultant.app.domain.model.arFilterFavoriteId
 import com.hairconsultant.app.domain.model.colorLookShadeId
 import com.hairconsultant.app.domain.model.isArFilter
 import com.hairconsultant.app.ui.components.FaceFitTiles
@@ -137,8 +138,16 @@ fun ProfileScreen(
             if (if (isHistory) uiState.history.isEmpty() else filters.isEmpty() && looks.isEmpty()) {
                 item { EmptyHistoryCard(selectedTab = uiState.selectedTab) }
             } else if (isHistory) {
+                val savedFilterIds = uiState.favorites.filter { it.isArFilter }.map { it.id }.toSet()
                 items(uiState.history, key = { it.id }) { consultation ->
-                    ConsultationRow(consultation = consultation, onToggleFavorite = { viewModel.toggleFavorite(consultation) })
+                    // A try-on session's heart is its style's filter (see toggleHistoryFavorite), so it shows that.
+                    val filterSaved = consultation.arTryOnHaircut
+                        ?.let { arFilterFavoriteId(consultation.userId, it.id) in savedFilterIds }
+                    ConsultationRow(
+                        consultation = consultation,
+                        isFavorite = filterSaved ?: consultation.isFavorite,
+                        onToggleFavorite = { viewModel.toggleHistoryFavorite(consultation, filterSaved == true) }
+                    )
                 }
             } else {
                 if (filters.isNotEmpty()) {
@@ -482,7 +491,7 @@ private fun EmptyHistoryCard(selectedTab: ProfileTab) {
 
 /** A past consultation, stamped with how far it got: scanned, a cut picked, a preview generated. */
 @Composable
-private fun ConsultationRow(consultation: Consultation, onToggleFavorite: () -> Unit) {
+private fun ConsultationRow(consultation: Consultation, isFavorite: Boolean, onToggleFavorite: () -> Unit) {
     val shop = LocalShopColors.current
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -535,10 +544,10 @@ private fun ConsultationRow(consultation: Consultation, onToggleFavorite: () -> 
             }
             IconButton(onClick = onToggleFavorite) {
                 Icon(
-                    imageVector = if (consultation.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                    contentDescription = if (consultation.isFavorite) "Remove from favorites" else "Add to favorites",
+                    imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                    contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
                     // The fit mark, not oxblood: oxblood stays on the screen's one primary action.
-                    tint = if (consultation.isFavorite) shop.fit else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = if (isFavorite) shop.fit else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
