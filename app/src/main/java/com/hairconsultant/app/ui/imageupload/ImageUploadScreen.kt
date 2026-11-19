@@ -331,6 +331,8 @@ private fun UploadEmptyState(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 PhotoTip("Face the camera, chin level")
                 PhotoTip("Hair visible, nothing covering it")
+                // Hair length is read from how the strands lie (HairFlow), like on Face Scan.
+                PhotoTip("Hair combed neatly to one side, strands in order, so its length can be measured")
                 PhotoTip("Even light, no strong shadows")
             }
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
