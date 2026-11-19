@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -98,6 +99,10 @@ fun HairConsultantNavHost(container: AppContainer) {
                 }
             }
         }
+        // Face Scan and Upload keep their scan, chat stage and picks for the whole session (until
+        // the app is closed), not just while their tab is on the back stack: Face Scan has no tab
+        // bar, so leaving it pops its entry, which used to clear the scan.
+        val sessionOwner = checkNotNull(LocalViewModelStoreOwner.current)
         NavHost(
             navController = navController,
             startDestination = startDestination,
@@ -187,7 +192,7 @@ fun HairConsultantNavHost(container: AppContainer) {
                 HomeScreen(viewModel = viewModel, onOpenColorStudio = { openColorStudio(null) })
             }
             composable(Screen.FaceScan.route, exitTransition = exitToStudio, popEnterTransition = returnFromStudio) {
-                val viewModel: FaceScanViewModel = viewModel(factory = ViewModelFactory(container) { c ->
+                val viewModel: FaceScanViewModel = viewModel(viewModelStoreOwner = sessionOwner, factory = ViewModelFactory(container) { c ->
                     FaceScanViewModel(
                         c.faceAnalyzer,
                         c.hairstyleRecommender,
@@ -204,7 +209,7 @@ fun HairConsultantNavHost(container: AppContainer) {
                 FaceScanScreen(viewModel = viewModel, onOpenColorStudio = { openColorStudio(null) })
             }
             composable(Screen.ImageUpload.route, exitTransition = exitToStudio, popEnterTransition = returnFromStudio) {
-                val viewModel: ImageUploadViewModel = viewModel(factory = ViewModelFactory(container) { c ->
+                val viewModel: ImageUploadViewModel = viewModel(viewModelStoreOwner = sessionOwner, factory = ViewModelFactory(container) { c ->
                     ImageUploadViewModel(
                         c.faceAnalyzer,
                         c.hairstyleRecommender,

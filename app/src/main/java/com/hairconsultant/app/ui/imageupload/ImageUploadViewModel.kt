@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -509,6 +510,19 @@ class ImageUploadViewModel(
 
     /** Styles being generated right now, so a second tap on one doesn't start a duplicate request. */
     private val generating = mutableSetOf<String>()
+
+    init {
+        // This lives for the whole app session (see HairConsultantNavHost), so another sign-in
+        // mustn't inherit the last account's photo and picks.
+        viewModelScope.launch {
+            authRepository.currentUser.map { it?.uid }.distinctUntilChanged().drop(1).collect {
+                consultationId = UUID.randomUUID().toString()
+                previews.clear()
+                generating.clear()
+                _uiState.value = ImageUploadUiState()
+            }
+        }
+    }
 
     /** The treatment is part of the prompt, so the same style with a different one is a different preview. */
     private fun previewKey(haircut: Haircut) =

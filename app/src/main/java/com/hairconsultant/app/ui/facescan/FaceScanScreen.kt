@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material.icons.filled.Refresh
@@ -183,32 +184,34 @@ fun FaceScanScreen(viewModel: FaceScanViewModel, onOpenColorStudio: () -> Unit) 
         val hasInitialAnalysis = uiState.stage != FaceScanStage.IDLE && uiState.stage != FaceScanStage.ANALYZING
         val tryingOn = uiState.triedOnHaircut != null && !HairstyleArCatalog.shouldUseDeepAr(uiState.triedOnHaircut!!)
 
-        // Top bar over the camera: the scan guidance sign while scanning, otherwise the
-        // try-on / rescan controls; the chat opener sits at its end either way.
+        // Top bar over the camera: the scan guidance sign (and the hair tip) while scanning,
+        // otherwise the try-on control; the chat opener sits at its end either way.
         if (!deepArCameraPaused) {
-            Row(
+            Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.statusBars)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                when {
-                    scanning -> ScanGuideSign(guide = guide, modifier = Modifier.weight(1f))
-                    else -> Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (tryingOn) {
-                            OverlayButton(text = "Stop try-on", icon = Icons.Filled.Close, onClick = viewModel::clearTryOn)
-                        }
-                        if (hasInitialAnalysis) {
-                            OverlayButton(text = "Rescan", icon = Icons.Filled.Refresh, onClick = viewModel::rescan)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    when {
+                        scanning -> ScanGuideSign(guide = guide, modifier = Modifier.weight(1f))
+                        else -> Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (tryingOn) {
+                                OverlayButton(text = "Stop try-on", icon = Icons.Filled.Close, onClick = viewModel::clearTryOn)
+                            }
                         }
                     }
+                    // Icon only: the scan guidance sign beside it needs the width.
+                    OverlayIconButton(icon = Icons.Filled.Palette, contentDescription = "Try a hair color", onClick = onOpenColorStudio)
+                    ChatIconButton(onClick = { viewModel.chatBot.setOpen(true) }, onScrim = true)
                 }
-                // Icon only: the scan guidance sign beside it needs the width.
-                OverlayIconButton(icon = Icons.Filled.Palette, contentDescription = "Try a hair color", onClick = onOpenColorStudio)
-                ChatIconButton(onClick = { viewModel.chatBot.setOpen(true) }, onScrim = true)
+                if (scanning) HairCombTip()
             }
         }
 
@@ -226,46 +229,63 @@ fun FaceScanScreen(viewModel: FaceScanViewModel, onOpenColorStudio: () -> Unit) 
             }
         }
 
-        if (uiState.suggestions.isNotEmpty() && !deepArCameraPaused) {
+        // Bottom: the try-on strips once there are picks, above the main action, which stays at
+        // the bottom centre: Scan face before a scan, Rescan after it.
+        if (!deepArCameraPaused) {
             Column(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (uiState.triedOnHaircut != null) {
-                    HairColorStrip(
-                        selected = uiState.tryOnHairColor,
-                        onSelect = viewModel::onTryOnHairColor
+                if (uiState.suggestions.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (uiState.triedOnHaircut != null) {
+                            HairColorStrip(
+                                selected = uiState.tryOnHairColor,
+                                onSelect = viewModel::onTryOnHairColor
+                            )
+                        }
+                        TryOnStrip(
+                            suggestions = uiState.suggestions,
+                            selectedHaircut = uiState.triedOnHaircut,
+                            onSelect = viewModel::onHaircutTryOn
+                        )
+                    }
+                }
+                if (scanning) {
+                    // Scanning is only allowed once the guide shows a face inside the oval, facing the camera; the guide's
+                    // own text says what to fix, so a disabled tap just does nothing.
+                    val canScan = guide.faceDetected && guide.alignmentHint == null
+                    ExtendedFloatingActionButton(
+                        onClick = { if (canScan) viewModel.startScan() },
+                        icon = { Icon(Icons.Filled.CameraAlt, contentDescription = null) },
+                        text = { Text("Scan face") },
+                        containerColor = if (canScan) MaterialTheme.colorScheme.primary else OnShell.copy(alpha = 0.10f),
+                        contentColor = if (canScan) MaterialTheme.colorScheme.onPrimary else OnShell.copy(alpha = 0.45f),
+                        elevation = FloatingActionButtonDefaults.elevation(defaultElevation = if (canScan) 6.dp else 0.dp),
+                        modifier = Modifier.semantics {
+                            contentDescription = if (canScan) "Scan face" else "Scan face — ${guide.alignmentHint ?: "line up your face with the oval first"}"
+                            if (!canScan) disabled()
+                        }
+                    )
+                } else if (hasInitialAnalysis) {
+                    ExtendedFloatingActionButton(
+                        onClick = viewModel::rescan,
+                        icon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+                        text = { Text("Rescan") },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
                     )
                 }
-                TryOnStrip(
-                    suggestions = uiState.suggestions,
-                    selectedHaircut = uiState.triedOnHaircut,
-                    onSelect = viewModel::onHaircutTryOn
-                )
             }
-        }
-
-        if (scanning) {
-            // Scanning is only allowed once the guide shows a face inside the oval, facing the camera; the guide's
-            // own text says what to fix, so a disabled tap just does nothing.
-            val canScan = guide.faceDetected && guide.alignmentHint == null
-            ExtendedFloatingActionButton(
-                onClick = { if (canScan) viewModel.startScan() },
-                icon = { Icon(Icons.Filled.CameraAlt, contentDescription = null) },
-                text = { Text("Scan face") },
-                containerColor = if (canScan) MaterialTheme.colorScheme.primary else OnShell.copy(alpha = 0.10f),
-                contentColor = if (canScan) MaterialTheme.colorScheme.onPrimary else OnShell.copy(alpha = 0.45f),
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = if (canScan) 6.dp else 0.dp),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp)
-                    .semantics {
-                        contentDescription = if (canScan) "Scan face" else "Scan face — ${guide.alignmentHint ?: "line up your face with the oval first"}"
-                        if (!canScan) disabled()
-                    }
-            )
         }
     }
 
@@ -278,6 +298,28 @@ fun FaceScanScreen(viewModel: FaceScanViewModel, onOpenColorStudio: () -> Unit) 
             onSend = { scope.launch { viewModel.chatBot.sendCurrentInput() } },
             onHaircutSelected = viewModel::onHaircutTryOn,
             onQuickReplySelected = viewModel::onQuickReply
+        )
+    }
+}
+
+/**
+ * Hair length is read from how the strands lie ([com.hairconsultant.app.data.analysis.HairFlow]),
+ * so ask for them combed into order before the scan.
+ */
+@Composable
+private fun HairCombTip(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .background(CameraScrim, MaterialTheme.shapes.large)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(Icons.Filled.Info, contentDescription = null, tint = OnShell, modifier = Modifier.size(18.dp))
+        Text(
+            "Comb your hair neatly to one side so the strands lie in order. That's how I measure your hair length.",
+            style = MaterialTheme.typography.bodySmall,
+            color = OnShell
         )
     }
 }

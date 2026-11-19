@@ -39,7 +39,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -90,6 +93,17 @@ class FaceScanViewModel(
 
     /** When the current scan started; everything from here on is this consultation's conversation. */
     private var consultationStartedAt = 0L
+
+    init {
+        // This lives for the whole app session (see HairConsultantNavHost), so another sign-in
+        // mustn't inherit the last account's scan.
+        viewModelScope.launch {
+            authRepository.currentUser.map { it?.uid }.distinctUntilChanged().drop(1).collect {
+                consultationId = UUID.randomUUID().toString()
+                _uiState.value = FaceScanUiState()
+            }
+        }
+    }
 
     /**
      * Why a scan can't start right now, or null when it can: the camera guide must have found a
