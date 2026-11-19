@@ -10,6 +10,7 @@ import com.hairconsultant.app.data.analysis.FaceShapeTfliteClassifier
 import com.hairconsultant.app.data.analysis.HairTypeTfliteClassifier
 import com.hairconsultant.app.data.analysis.LandmarkFaceAnalyzer
 import com.hairconsultant.app.data.analysis.MlKitFaceMeshVerifier
+import com.hairconsultant.app.data.analysis.HairChangeDetector
 import com.hairconsultant.app.data.analysis.StillImageFaceLandmarker
 import com.hairconsultant.app.data.analysis.StillImageHairSegmenter
 import com.hairconsultant.app.data.local.AppDatabase
@@ -90,7 +91,9 @@ class AppContainer(private val appContext: Context) {
     val themePreference: ThemePreference by lazy { ThemePreference(appContext) }
 
     // --- Gemini (image-upload AR try-on generation + the AI consultant chatbot's reasoning) ---
-    val geminiImageRepository: GeminiImageRepository by lazy { GeminiImageRepositoryImpl(appContext) }
+    val geminiImageRepository: GeminiImageRepository by lazy {
+        GeminiImageRepositoryImpl(appContext, hairChange = HairChangeDetector(appContext, stillFaceLandmarker, stillHairSegmenter))
+    }
 
     // RAG: embeds HairKnowledgeBase's chunks and retrieves the ones relevant to each question,
     // so the chatbot is grounded on just the passages that answer it rather than the whole base.

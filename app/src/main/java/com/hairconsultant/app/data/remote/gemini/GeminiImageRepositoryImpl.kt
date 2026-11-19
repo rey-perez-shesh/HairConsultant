@@ -8,6 +8,9 @@ import android.graphics.Color
 import android.net.Uri
 import android.util.Base64
 import android.util.Log
+import com.hairconsultant.app.data.analysis.HairChangeDetector
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -38,6 +41,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  */
 class GeminiImageRepositoryImpl(
     private val appContext: Context,
+    /** Tells a result that kept the person's hair, however it was recropped; null falls back to the pixel check alone. */
+    private val hairChange: HairChangeDetector? = null,
     // Image generation routinely takes 20-60s (far past OkHttp's 10s defaults), so this client
     // needs its own generous timeouts rather than sharing NetworkModule's backend-API client.
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
@@ -73,12 +78,14 @@ class GeminiImageRepositoryImpl(
             reference?.let { File(appContext.cacheDir, "debug_reference.jpg").writeBytes(it.first) }
 
             var image = requestPreview(prompt, reference, source)
-            // The model now and then hands the photo back with the hair untouched, mostly for
-            // styles close to the person's current cut. One firmer retry, then show what we have.
-            if (looksUnchanged(source.first, image)) {
-                Log.d(TAG, "result matches the uploaded photo; retrying once")
+            // The model now and then hands the photo back with the hair untouched (often recropped
+            // or zoomed), mostly for styles close to the person's current cut. One firmer retry;
+            // if that keeps the hair too, say so rather than show their own hair as the style.
+            if (keptHair(sourceImageUri, source.first, image)) {
+                Log.d(TAG, "result kept the hair as it was; retrying once")
                 image = runCatching { requestPreview(prompt + UNCHANGED_RETRY_NOTE, reference, source) }
                     .getOrElse { if (it is CancellationException) throw it else image }
+                if (keptHair(sourceImageUri, source.first, image)) error(UNCHANGED_MESSAGE)
             }
 
             val file = File(appContext.cacheDir, "gemini_preview_${System.currentTimeMillis()}.jpg")
@@ -111,6 +118,18 @@ class GeminiImageRepositoryImpl(
         }
         val request = GeminiEndpoint.post("gemini-2.5-flash-image:generateContent", requestJson.toString())
         return extractGeneratedImage(httpClient.await(request))
+    }
+
+    /**
+     * True when [generated] left the person's hair as it was: either it's the same picture
+     * ([looksUnchanged]), or, recropped or not, the hair lined up on the face has the same shape
+     * ([HairChangeDetector]).
+     */
+    private suspend fun keptHair(sourceUri: Uri, source: ByteArray, generated: ByteArray): Boolean {
+        if (looksUnchanged(source, generated)) return true
+        val overlap = withContext(Dispatchers.Default) { hairChange?.hairOverlap(sourceUri, generated) } ?: return false
+        Log.d(TAG, "hair overlap with the uploaded photo: $overlap")
+        return overlap >= SAME_HAIR_OVERLAP
     }
 
     /**
@@ -219,6 +238,15 @@ class GeminiImageRepositoryImpl(
 
         const val UNCHANGED_RETRY_NOTE = " The previous attempt returned the photo with the hair unchanged, which " +
             "is wrong. The hair must be visibly restyled to match the first image."
+
+        /**
+         * At or above this overlap of the hair lined up on the face, the result kept the person's
+         * own cut. A real restyle moves the outline (shorter sides, a taller top, a new fringe).
+         * shortcut: a judgement, not yet measured; each check logs its overlap, so tune it from those.
+         */
+        const val SAME_HAIR_OVERLAP = 0.75f
+
+        const val UNCHANGED_MESSAGE = "the AI sent your photo back twice with your hair unchanged. Tap Try again for another attempt"
     }
 
     private suspend fun OkHttpClient.await(request: Request): String = suspendCancellableCoroutine { cont ->

@@ -242,18 +242,22 @@ fun ImageUploadScreen(viewModel: ImageUploadViewModel, onOpenColorStudio: (Uri) 
                 modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Only for a generated preview: there's nothing of the user's own to keep before one.
-                if (uiState.lookId != null) {
+                // Try again after a preview or a failed one; Save look only for a generated preview,
+                // since there's nothing of the user's own to keep before one.
+                val failed = uiState.generationError != null && uiState.selectedHaircut != null && !uiState.isGenerating
+                if (uiState.lookId != null || failed) {
                     Row(
                         modifier = Modifier.align(Alignment.End),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         OverlayButton(text = "Try again", icon = Icons.Filled.Refresh, onClick = viewModel::regeneratePreview)
-                        OverlayButton(
-                            text = if (lookSaved) "Saved to Favorites" else "Save look",
-                            icon = if (lookSaved) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                            onClick = viewModel::toggleSaveLook
-                        )
+                        if (uiState.lookId != null) {
+                            OverlayButton(
+                                text = if (lookSaved) "Saved to Favorites" else "Save look",
+                                icon = if (lookSaved) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                onClick = viewModel::toggleSaveLook
+                            )
+                        }
                     }
                 }
                 if (uiState.suggestions.isNotEmpty()) {
