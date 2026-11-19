@@ -1,6 +1,7 @@
 package com.hairconsultant.app.data.remote.gemini
 
 import com.hairconsultant.app.data.HairKnowledgeBase
+import com.hairconsultant.app.data.HaircutLengths
 import com.hairconsultant.app.domain.model.ChatMessage
 import com.hairconsultant.app.domain.model.ChatSender
 import com.hairconsultant.app.domain.model.HairLength
@@ -263,6 +264,7 @@ class GeminiChatRepositoryImpl(
             val transcript = consultation.joinToString(separator = "\n") { "${it.sender.name}: ${it.text}" }
             val catalog = candidates.joinToString(separator = "\n") { haircut ->
                 "- id=${haircut.id} | \"${haircut.name}\" | ${haircut.length.displayName}, ${haircut.texture.displayName} | " +
+                    "${HaircutLengths.forHaircut(haircut).describe()} | " +
                     "${haircut.genderStyle.displayName} | suits ${haircut.recommendedFaceShapes.joinToString(", ") { it.displayName }} " +
                     "face shapes | ${haircut.description}"
             }
@@ -387,6 +389,8 @@ class GeminiChatRepositoryImpl(
             2. Use the hairstyling knowledge to judge fit for their confirmed face shape and hair
                type — name real mechanisms, not generic compliments.
             3. Only pick ids that appear in the candidate list, each at most once.
+            4. Hair can only be cut shorter: never pick a style that needs more length than the
+               user's measured current hair.
 
             Output strict JSON only, exactly this shape:
             {"ids": ["<id>", ...], "message": "<reply to the user>"}

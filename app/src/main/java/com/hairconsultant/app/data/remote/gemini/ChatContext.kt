@@ -1,5 +1,7 @@
 package com.hairconsultant.app.data.remote.gemini
 
+import com.hairconsultant.app.data.HaircutLengths
+import com.hairconsultant.app.data.analysis.HairLengthScale
 import com.hairconsultant.app.domain.model.Gender
 import com.hairconsultant.app.domain.model.HairColor
 import com.hairconsultant.app.domain.model.HairLength
@@ -7,6 +9,7 @@ import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.ScanResult
 import com.hairconsultant.app.domain.model.confidentSkinTone
 import com.hairconsultant.app.domain.model.confidentUndertone
+import com.hairconsultant.app.domain.model.inches
 import com.hairconsultant.app.domain.model.matchingHaircutStyles
 import com.hairconsultant.app.ui.haircolor.HairShades
 
@@ -59,7 +62,7 @@ fun ScanResult.unsureSentence(fixLabel: String): String? {
     val unsure = buildList {
         if (faceShapeConfidence < FACE_SHAPE_SURE) add("face shape")
         if (hairLength != HairLength.BALD) {
-            if (hairLengthConfidence < HAIR_SURE) add("hair length")
+            if (hairLengthConfidence < HAIR_SURE || measuredHairLength?.atLeast == true) add("hair length")
             if (hairTextureConfidence < HAIR_SURE) add("hair texture")
         }
     }
@@ -70,6 +73,24 @@ fun ScanResult.unsureSentence(fixLabel: String): String? {
 
 private const val FACE_SHAPE_SURE = 0.4f
 private const val HAIR_SURE = 0.5f
+
+/** "short hair (about 2–3 in (5–8 cm) on top)" for the scan summary; just the label when the length wasn't measured. */
+fun ScanResult.hairLengthPhrase(): String =
+    "${hairLength.displayName.lowercase()} hair" + (measuredHairLength?.let { " (${it.describe()})" } ?: "")
+
+/**
+ * The measured hair length as chat context, with the rule it sets: hair can only be cut shorter,
+ * so styles needing more than the scan measured are out of reach until it grows. Null when the
+ * length wasn't measured (bald, or no hair reading).
+ */
+fun ScanResult.describeHairLengthForChatContext(gender: Gender?): String? {
+    val measured = measuredHairLength ?: return null
+    return "Current hair length (measured by the scan): ${measured.describe()} at its longest, " +
+        "${hairLength.displayName} by ${HairLengthScale.scaleName(gender)}. Each catalog style lists the length it needs. " +
+        "Hair can only be cut shorter: don't recommend a style that needs more than ${inches(measured.maxIn)} in; if the user " +
+        "asks for one, explain how much they'd need to grow (about half an inch, 1.25 cm, a month)." +
+        if (measured.atLeast) " Their hair ran past the bottom of the scan, so it may be longer than that." else ""
+}
 
 /** The chat's sentence about the skin right after a scan, or null when it wasn't read reliably. */
 fun ScanResult.skinScanSentence(): String? {
@@ -107,6 +128,7 @@ fun List<Haircut>.describeForChatContext(): String =
     } else {
         joinToString(separator = "\n") { haircut ->
             "- \"${haircut.name}\" (${haircut.length.displayName}, ${haircut.texture.displayName} hair; " +
+                "${HaircutLengths.forHaircut(haircut).describe()}; " +
                 "${haircut.genderStyle.displayName}; " +
                 "suits ${haircut.recommendedFaceShapes.joinToString(", ") { it.displayName }} face shapes): " +
                 haircut.description

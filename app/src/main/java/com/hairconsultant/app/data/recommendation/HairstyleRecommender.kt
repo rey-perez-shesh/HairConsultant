@@ -1,6 +1,8 @@
 package com.hairconsultant.app.data.recommendation
 
 import android.util.Log
+import com.hairconsultant.app.data.HaircutLengths
+import com.hairconsultant.app.data.analysis.HairLengthScale
 import com.hairconsultant.app.data.remote.gemini.ExtractedPreferences
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.data.repository.HaircutRepository
@@ -61,7 +63,10 @@ class HairstyleRecommender(
         // can't pick e.g. a short cut for someone who asked for medium. Near-misses only enter
         // the pool when there aren't enough exact matches to fill the top picks.
         val shortlist = shortlist(scan, parameters, gender, RANKING_POOL_SIZE)
-        val exactMatches = shortlist.filter { it.matchesStated(parameters) }
+        if (shortlist.isEmpty()) {
+            return HairstyleRecommendation(emptyList(), tooShortForAnyStyle(scan, gender), parameters)
+        }
+        val exactMatches = shortlist.filter { it.matchesStated(parameters, gender) }
         val pool = if (exactMatches.size >= TOP_PICKS) exactMatches else shortlist
         val ranked = chatRepository.rankHaircuts(
             consultation = consultation,
@@ -96,20 +101,21 @@ class HairstyleRecommender(
      * ranking rather than just scored lower, so the fill-in near-misses are always the closest
      * gender-appropriate styles (e.g. a long wavy men's cut for a man who asked for long straight),
      * never a women's style for a man or the reverse.
+     *
+     * Hair can only be cut shorter, so styles needing more length than the scan measured
+     * ([ScanResult.measuredHairLength]) are dropped too. Wanted length is matched on [gender]'s
+     * label scale ([HairLengthScale]), since Short/Medium/Long mean different inches for men and women.
      */
     suspend fun shortlist(scan: ScanResult, parameters: ExtractedPreferences, gender: Gender?, limit: Int): List<Haircut> {
-        val catalog = catalog()
         // Bald users are choosing a wig, so the scanned length/texture say nothing about what they want.
         val bald = parameters.length == HairLength.BALD
         val length = parameters.length.takeUnless { bald }
         val texture = parameters.texture.takeUnless { bald }
-        val allowedStyles = gender?.takeIf { it == Gender.MALE || it == Gender.FEMALE }?.matchingHaircutStyles()
-        val eligible = allowedStyles?.let { styles -> catalog.filter { it.genderStyle in styles } }
-            ?.takeIf { it.isNotEmpty() } ?: catalog
+        val eligible = forGender(catalog(), gender).let { styles -> if (bald) styles else styles.filter { it.fits(scan) } }
         return eligible
             .sortedByDescending { haircut ->
                 var score = 0
-                if (length != null && haircut.length == length) score += LENGTH_WEIGHT
+                if (length != null && HairLengthScale.label(haircut, gender) == length) score += LENGTH_WEIGHT
                 if (texture != null && haircut.texture == texture) score += TEXTURE_WEIGHT
                 when (parameters.treatment) {
                     TreatmentPreference.REBOND -> if (haircut.texture == HairTexture.STRAIGHT) score += TREATMENT_WEIGHT
@@ -122,16 +128,43 @@ class HairstyleRecommender(
             .take(limit)
     }
 
+    /** Styles for [gender] (theirs plus unisex) when it's male or female; the whole catalog otherwise. */
+    private fun forGender(catalog: List<Haircut>, gender: Gender?): List<Haircut> {
+        val allowedStyles = gender?.takeIf { it == Gender.MALE || it == Gender.FEMALE }?.matchingHaircutStyles()
+        return allowedStyles?.let { styles -> catalog.filter { it.genderStyle in styles } }?.takeIf { it.isNotEmpty() } ?: catalog
+    }
+
+    /** Whether this style can be cut from the scanned hair: it needs no more than the hair's longest possible reading. */
+    private fun Haircut.fits(scan: ScanResult): Boolean {
+        val measured = scan.measuredHairLength ?: return true
+        return HaircutLengths.forHaircut(this).minIn <= measured.maxIn
+    }
+
+    /** The reply when the hair is shorter than every style for [gender] needs, naming the nearest one to grow into. */
+    private suspend fun tooShortForAnyStyle(scan: ScanResult, gender: Gender?): String {
+        val measured = scan.measuredHairLength
+        val nearest = forGender(catalog(), gender).minByOrNull { HaircutLengths.forHaircut(it).minIn }
+        if (measured == null || nearest == null) return "I couldn't find a style in the catalog that fits right now."
+        val need = HaircutLengths.forHaircut(nearest)
+        val months = ((need.minIn - measured.maxIn) / GROWTH_IN_PER_MONTH).toInt().coerceAtLeast(1)
+        return "Your hair is ${measured.describe()}, shorter than any style in the catalog needs yet. The closest is " +
+            "\"${nearest.name}\", which ${need.describe()}: about $months more month${if (months == 1) "" else "s"} of growth " +
+            "at roughly half an inch a month."
+    }
+
     /** Bald means a wig, so length/texture don't constrain it; otherwise every stated one must match. */
-    private fun Haircut.matchesStated(parameters: ExtractedPreferences): Boolean {
+    private fun Haircut.matchesStated(parameters: ExtractedPreferences, gender: Gender?): Boolean {
         if (parameters.length == HairLength.BALD) return true
-        return (parameters.length == null || length == parameters.length) &&
+        return (parameters.length == null || HairLengthScale.label(this, gender) == parameters.length) &&
             (parameters.texture == null || texture == parameters.texture)
     }
 
     private fun describeProfile(scan: ScanResult, parameters: ExtractedPreferences, gender: Gender?): String = buildString {
         append("Confirmed face shape: ${scan.faceShape.displayName}. ")
         append("Current hair: ${scan.hairLength.displayName}, ${scan.hairTexture.displayName}. ")
+        scan.measuredHairLength?.let {
+            append("Measured current hair: ${it.describe()} at its longest; no style needing more than that can be cut from it. ")
+        }
         parameters.length?.let { append("Wanted length: ${it.displayName}. ") }
         parameters.texture?.let { append("Wanted texture: ${it.displayName}. ") }
         parameters.treatment?.let { append("Treatment: ${it.displayName}. ") }
@@ -146,5 +179,7 @@ class HairstyleRecommender(
         private const val TEXTURE_WEIGHT = 6
         private const val FACE_SHAPE_WEIGHT = 3
         private const val TREATMENT_WEIGHT = 2
+        /** Average scalp hair growth (hairfinder). */
+        private const val GROWTH_IN_PER_MONTH = 0.5f
     }
 }

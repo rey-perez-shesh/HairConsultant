@@ -3,6 +3,7 @@ package com.hairconsultant.app.data.analysis
 import com.hairconsultant.app.domain.model.HairLength
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -71,7 +72,76 @@ class HairLengthClassifierTest {
         assertEquals(HairLength.BALD, HairLengthClassifier.combine(listOf(bald, bald, reading(0.5f)))!!.length)
     }
 
+    @Test
+    fun theIrisSetsTheScaleAndHairAboveTheSkullIsMeasured() {
+        val labels = ByteArray(100 * 100)
+        fill(labels, rows = 10..40, columns = 35..65)
+        val result = HairLengthClassifier.classify(HairMask(labels, 100, 100), scaledPoints(), null, 1000, 1000)!!
+        // 20 px iris -> 11.7 / 20 mm per px; the skull top is 1.5 face heights above the chin (y 0.175).
+        assertEquals(0.585f, result.mmPerPx!!, 0.0001f)
+        assertEquals((0.175f - 0.10f) * 585f * 1.15f, result.topMm!!, 0.5f)
+        assertNull(result.fringeMm)
+        assertNull(result.fallMm)
+    }
+
+    @Test
+    fun hairHangingPastTheEarLobesIsMeasuredFromTheSkullTop() {
+        val labels = ByteArray(100 * 100)
+        fill(labels, rows = 10..80, columns = 20..30)
+        val result = HairLengthClassifier.classify(HairMask(labels, 100, 100), scaledPoints(), null, 1000, 1000)!!
+        assertEquals((0.80f - 0.175f) * 585f, result.fallMm!!, 0.5f)
+    }
+
+    @Test
+    fun aFringeIsMeasuredFromTheNaturalHairline() {
+        val points = scaledPoints().toMutableList().apply {
+            this[151] = LandmarkPoint(0.5f, 0.33f)
+            this[109] = LandmarkPoint(0.42f, 0.32f)
+            this[338] = LandmarkPoint(0.58f, 0.32f)
+            this[9] = LandmarkPoint(0.5f, 0.40f)
+            this[2] = LandmarkPoint(0.5f, 0.47f)
+        }
+        val labels = ByteArray(100 * 100)
+        fill(labels, rows = 10..36, columns = 35..65)
+        val result = HairLengthClassifier.classify(HairMask(labels, 100, 100), points, null, 1000, 1000)!!
+        // Hairline one nose-to-chin above the brow: 0.40 - 0.08 = 0.32; the fringe ends at 0.37; plus 25 mm of origin.
+        assertEquals(0.05f * 585f + 25f, result.fringeMm!!, 0.5f)
+    }
+
+    @Test
+    fun withoutIrisPointsTheScaleFallsBackToFaceWidth() {
+        val points = scaledPoints().take(468)
+        assertEquals(140f / 240f, HairLengthClassifier.mmPerPixel(points, 1000, 1000)!!, 0.0001f)
+    }
+
+    @Test
+    fun combiningFramesTakesTheMedianOfReadingsMostFramesHad() {
+        val combined = HairLengthClassifier.combine(
+            listOf(
+                reading(0.1f).copy(topMm = 40f, fringeMm = 30f),
+                reading(0.1f).copy(topMm = 60f),
+                reading(0.1f).copy(topMm = 50f)
+            )
+        )!!
+        assertEquals(50f, combined.topMm!!, 0.001f)
+        assertNull(combined.fringeMm)
+    }
+
     private fun reading(belowChin: Float) = HairLengthClassification(HairLength.MEDIUM, 0.6f, 0.1f, belowChin)
+
+    /** A face with a 20 px iris and a 240 px cheek width on a 1000 px image, mesh top at 0.30 and chin at 0.55. */
+    private fun scaledPoints(): List<LandmarkPoint> = facePoints(chinY = 0.55f, topY = 0.30f).toMutableList().apply {
+        this[469] = LandmarkPoint(0.39f, 0.40f)
+        this[470] = LandmarkPoint(0.40f, 0.393f)
+        this[471] = LandmarkPoint(0.41f, 0.40f)
+        this[472] = LandmarkPoint(0.40f, 0.407f)
+        this[474] = LandmarkPoint(0.59f, 0.40f)
+        this[475] = LandmarkPoint(0.60f, 0.393f)
+        this[476] = LandmarkPoint(0.61f, 0.40f)
+        this[477] = LandmarkPoint(0.60f, 0.407f)
+        this[FaceShapeClassifier.LEFT_CHEEK] = LandmarkPoint(0.38f, 0.45f)
+        this[FaceShapeClassifier.RIGHT_CHEEK] = LandmarkPoint(0.62f, 0.45f)
+    }
 
     private fun classify(hairMaxY: Int): HairLengthClassification {
         val labels = ByteArray(100 * 100)

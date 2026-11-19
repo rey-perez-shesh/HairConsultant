@@ -1,0 +1,169 @@
+package com.hairconsultant.app.data.analysis
+
+import com.hairconsultant.app.data.HaircutLengths
+import com.hairconsultant.app.domain.model.Gender
+import com.hairconsultant.app.domain.model.HairLength
+import com.hairconsultant.app.domain.model.HairTexture
+import com.hairconsultant.app.domain.model.Haircut
+import com.hairconsultant.app.domain.model.MeasuredHairLength
+import com.hairconsultant.app.domain.model.ScanResult
+
+/**
+ * Inches and the Short / Medium / Long labels, which mean different lengths for men and women.
+ *  - Men's scale goes by length on top: Short under 2 in, Medium 2–5 in, Long over 5 in.
+ *  - The where-it-falls scale (women, and everyone without a male/female profile) goes by where
+ *    the hair lands: Short up to chin length, Medium chin to shoulder, Long past the shoulder.
+ *    Hairfinder counts chin length as short; on the straight-hair chart chin is 8–10 in and the
+ *    shoulder 12–14 in.
+ */
+object HairLengthScale {
+
+    /** One Fix-menu choice: how long the hair looks, in inches. */
+    data class Option(val label: String, val minIn: Float, val maxIn: Float, val section: String, val atLeast: Boolean = false)
+
+    private const val MENS_SHORT_UNDER = 2f
+    private const val MENS_MEDIUM_UP_TO = 5f
+    private const val FALLS_SHORT_UNDER = 10f
+    private const val FALLS_MEDIUM_UP_TO = 14f
+
+    private const val MM_PER_INCH = 25.4f
+    /** The iris scale's error (MediaPipe Iris: 4.3% mean), with some margin. */
+    private const val SCALE_ERROR = 0.08f
+    /** How far off the method itself can be: tighter for hair on top, looser for hair hanging from the crown. */
+    private const val SHORT_ERROR_IN = 0.5f
+    private const val FALL_ERROR_IN = 1f
+    /** Traced strands wander and only show the part facing the camera, so they get hanging hair's wider margin. */
+    private const val FLOW_ERROR_IN = 1f
+    private const val SHORTEST_IN = 0.1f
+
+    private const val TOP = "on top"
+    private const val FRINGE = "at the fringe"
+    private const val OVERALL = "overall"
+
+    /** The label [inches] reads as on [gender]'s scale. */
+    fun label(inches: Float, gender: Gender?): HairLength = if (gender == Gender.MALE) {
+        when {
+            inches < MENS_SHORT_UNDER -> HairLength.SHORT
+            inches <= MENS_MEDIUM_UP_TO -> HairLength.MEDIUM
+            else -> HairLength.LONG
+        }
+    } else {
+        when {
+            inches < FALLS_SHORT_UNDER -> HairLength.SHORT
+            inches <= FALLS_MEDIUM_UP_TO -> HairLength.MEDIUM
+            else -> HairLength.LONG
+        }
+    }
+
+    /** The user's label: men's scale by the stretched length, where-it-falls by how long it looks. */
+    fun label(measured: MeasuredHairLength, gender: Gender?): HairLength =
+        label(if (gender == Gender.MALE) (measured.minIn + measured.maxIn) / 2f else measured.visibleIn, gender)
+
+    /** A catalog style's label on [gender]'s scale: men's by its inches, where-it-falls by where it lands once curls shrink. */
+    fun label(haircut: Haircut, gender: Gender?): HairLength {
+        val need = HaircutLengths.forHaircut(haircut)
+        val middle = (need.minIn + need.maxIn) / 2f
+        return label(if (gender == Gender.MALE) middle else middle * (1f - typicalShrinkage(haircut.texture)), gender)
+    }
+
+    /** "men's standard" or "where-it-falls standard", for saying which scale a label is on. */
+    fun scaleName(gender: Gender?): String =
+        if (gender == Gender.MALE) "men's standard (length on top)" else "where it falls (chin, shoulder)"
+
+    /**
+     * The scan's reading in inches: the longest of the top, fringe, hanging and traced-strand
+     * lengths. Null when none was measured.
+     */
+    fun measure(reading: HairLengthClassification, texture: HairTexture?): MeasuredHairLength? {
+        val (mm, section, methodError) = listOfNotNull(
+            reading.topMm?.let { Triple(it, TOP, SHORT_ERROR_IN) },
+            reading.fringeMm?.let { Triple(it, FRINGE, SHORT_ERROR_IN) },
+            reading.fallMm?.let { Triple(it, OVERALL, FALL_ERROR_IN) },
+            reading.flowMm?.let { Triple(it, TOP, FLOW_ERROR_IN) }
+        ).maxByOrNull { it.first } ?: return null
+        val visible = mm / MM_PER_INCH
+        return fromVisible(
+            minIn = visible * (1f - SCALE_ERROR) - methodError,
+            maxIn = visible * (1f + SCALE_ERROR) + methodError,
+            visibleIn = visible,
+            texture = texture,
+            section = section,
+            atLeast = reading.reachesFrameBottom && section == OVERALL
+        )
+    }
+
+    /** A Fix-menu choice as a length, stretched for the user's texture the same way a scan is. */
+    fun fromOption(option: Option, texture: HairTexture?): MeasuredHairLength =
+        fromVisible(option.minIn, option.maxIn, (option.minIn + option.maxIn) / 2f, texture, option.section, option.atLeast)
+
+    /** Curls and waves look shorter than they are: the stretched range allows for the least and most shrinkage. */
+    private fun fromVisible(
+        minIn: Float,
+        maxIn: Float,
+        visibleIn: Float,
+        texture: HairTexture?,
+        section: String,
+        atLeast: Boolean
+    ): MeasuredHairLength {
+        val (least, most) = shrinkage(texture)
+        return MeasuredHairLength(
+            minIn = (minIn / (1f - least)).coerceAtLeast(SHORTEST_IN),
+            maxIn = (maxIn / (1f - most)).coerceAtLeast(SHORTEST_IN),
+            visibleIn = visibleIn,
+            section = section,
+            atLeast = atLeast
+        )
+    }
+
+    /** The Fix menu's length choices (besides Bald) on [gender]'s scale. */
+    fun fixOptions(gender: Gender?): List<Option> = if (gender == Gender.MALE) {
+        listOf(
+            Option("Under 1 in", SHORTEST_IN, 1f, TOP),
+            Option("1–2 in", 1f, 2f, TOP),
+            Option("2–3 in", 2f, 3f, TOP),
+            Option("3–4 in", 3f, 4f, TOP),
+            Option("4–6 in", 4f, 6f, TOP),
+            Option("6–10 in", 6f, 10f, OVERALL),
+            Option("Past the chin", 10f, 14f, OVERALL, atLeast = true)
+        )
+    } else {
+        listOf(
+            Option("Pixie (under 4 in)", 1f, 4f, TOP),
+            Option("Ear length (4–7 in)", 4f, 7f, OVERALL),
+            Option("Chin (8–10 in)", 8f, 10f, OVERALL),
+            Option("Shoulder (12–14 in)", 12f, 14f, OVERALL),
+            Option("Past shoulders (14–18 in)", 14f, 18f, OVERALL),
+            Option("Mid-back (18 in+)", 18f, 24f, OVERALL, atLeast = true)
+        )
+    }
+
+    /** Least and most share of the stretched length curls hide (Red Seal cutting guide: wavy 10–25%, curly 25–50%). */
+    private fun shrinkage(texture: HairTexture?): Pair<Float, Float> = when (texture) {
+        HairTexture.WAVY -> 0.10f to 0.25f
+        HairTexture.CURLY -> 0.25f to 0.50f
+        HairTexture.STRAIGHT, null -> 0f to 0f
+    }
+
+    /** The shrinkage the catalog table assumed when it turned where a style lands into inches. */
+    private fun typicalShrinkage(texture: HairTexture): Float = when (texture) {
+        HairTexture.STRAIGHT -> 0f
+        HairTexture.WAVY -> 0.15f
+        HairTexture.CURLY -> 0.25f
+    }
+}
+
+/** The Fix menu's hair-length chips for [gender]: Bald, then [HairLengthScale.fixOptions]. */
+fun lengthFixChoices(gender: Gender?): List<String> =
+    listOf(HairLength.BALD.displayName) + HairLengthScale.fixOptions(gender).map { it.label }
+
+/** The label and length a [lengthFixChoices] chip stands for (Bald has no length), or null when [text] isn't one. */
+fun fixedLength(text: String, gender: Gender?, texture: HairTexture?): Pair<HairLength, MeasuredHairLength?>? {
+    if (text.equals(HairLength.BALD.displayName, ignoreCase = true)) return HairLength.BALD to null
+    val option = HairLengthScale.fixOptions(gender).firstOrNull { it.label.equals(text, ignoreCase = true) } ?: return null
+    val measured = HairLengthScale.fromOption(option, texture)
+    return HairLengthScale.label(measured, gender) to measured
+}
+
+/** This scan with its length label worked out from the inches on [gender]'s scale; unchanged when nothing was measured. */
+fun ScanResult.withLengthLabelFor(gender: Gender?): ScanResult =
+    measuredHairLength?.let { copy(hairLength = HairLengthScale.label(it, gender)) } ?: this

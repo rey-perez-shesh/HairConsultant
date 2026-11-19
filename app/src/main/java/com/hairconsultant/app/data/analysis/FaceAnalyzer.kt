@@ -109,8 +109,9 @@ class LandmarkFaceAnalyzer(
                     val bitmap = frame?.bitmap
                     if (bitmap != null) {
                         lastReadAt = SystemClock.elapsedRealtime()
+                        val pitch = store.latestAngles()?.pitchDeg
                         readings += withContext(Dispatchers.Default) {
-                            read(frame.points, frame.imageWidth, frame.imageHeight, bitmap, frame.hairMask)
+                            read(frame.points, frame.imageWidth, frame.imageHeight, bitmap, frame.hairMask, pitch)
                         }
                         // The newest frame is kept for the ML Kit check.
                         lastFrame?.bitmap?.recycle()
@@ -134,7 +135,7 @@ class LandmarkFaceAnalyzer(
             return withContext(Dispatchers.Default) {
                 val bitmap = frame.bitmap
                 if (readings.isEmpty() && bitmap != null) {
-                    readings += read(frame.points, frame.imageWidth, frame.imageHeight, bitmap, frame.hairMask)
+                    readings += read(frame.points, frame.imageWidth, frame.imageHeight, bitmap, frame.hairMask, angles?.pitchDeg)
                 }
                 decide(
                     measured.metrics, measured.agreement, readings, bitmap, angles, store.focalToLongSide,
@@ -163,7 +164,7 @@ class LandmarkFaceAnalyzer(
             val metrics = FaceShapeClassifier.measure(detection.points, bitmap.width, bitmap.height, detection.angles, focal)
                 ?: throw NoFaceDetectedException("I found a face but couldn't measure its shape. Move a bit closer and try again.")
             return withContext(Dispatchers.Default) {
-                val reading = read(detection.points, bitmap.width, bitmap.height, bitmap, liveHair = null)
+                val reading = read(detection.points, bitmap.width, bitmap.height, bitmap, liveHair = null, detection.angles?.pitchDeg)
                 decide(
                     metrics, agreement = null, listOf(reading), bitmap, detection.angles, focal,
                     faceWidthPx(detection.points, bitmap.width, bitmap.height), previousShape = null
@@ -178,13 +179,17 @@ class LandmarkFaceAnalyzer(
     private fun modelShape(metrics: FaceShapeMetrics): FaceShape =
         FaceShapeClassifier.decide(metrics, faceShapeCnn.probabilities(metrics)).shape
 
-    /** Hair and skin in one frame. [liveHair] is the camera's live hair mask; a photo is segmented here. */
+    /**
+     * Hair and skin in one frame. [liveHair] is the camera's live hair mask; a photo is segmented
+     * here. [pitchDeg] is the head's nod in this frame, for where the skull top projects.
+     */
     private fun read(
         points: List<LandmarkPoint>,
         width: Int,
         height: Int,
         bitmap: Bitmap,
-        liveHair: HairMask?
+        liveHair: HairMask?,
+        pitchDeg: Float?
     ): FrameReading {
         val parsing = faceParser.segment(bitmap)
         val hairMask = liveHair ?: stillHairSegmenter.segment(bitmap)
@@ -194,8 +199,14 @@ class LandmarkFaceAnalyzer(
             else -> null
         }
         val notHair: ((Float, Float) -> Boolean)? = parsing?.let { it::isNotHair }
-        val length = hairMask?.let { HairLengthClassifier.classify(it, points, notHair) }
-        val hair = hairMask?.takeIf { length != null && length.length != HairLength.BALD }
+        val classified = hairMask?.let { HairLengthClassifier.classify(it, points, notHair, width, height, pitchDeg ?: 0f) }
+        val hair = hairMask?.takeIf { classified != null && classified.length != HairLength.BALD }
+        // Hair lying flat: trace its strands, in the bitmap's pixels scaled to the image the mm/px is for.
+        val length = classified?.copy(
+            flowMm = classified.mmPerPx?.let { mmPerPx ->
+                hair?.let { HairFlow.longestStrandPx(bitmap, it, points, notHair) }?.let { it * width / bitmap.width * mmPerPx }
+            }
+        )
         val skinOnly: ((Float, Float) -> Boolean)? = parsing?.let { it::isFaceSkin }
             ?: hairMask?.let { mask -> { x: Float, y: Float -> !mask.isHairAt(x, y) } }
         return FrameReading(
@@ -244,6 +255,12 @@ class LandmarkFaceAnalyzer(
             ?.let { labs -> FloatArray(3) { channel -> labs.map { it[channel] }.median() } }
         val color = colorLab?.let(HairAppearanceClassifier::classifyColor)
         val texture = if (bald) null else combineTexture(readings)
+        val measuredLength = if (bald) null else length?.let { HairLengthScale.measure(it, texture?.first) }
+        Log.d(
+            TAG,
+            "Hair length: mm/px=${length?.mmPerPx} top=${length?.topMm} fringe=${length?.fringeMm} " +
+                "fall=${length?.fallMm} flow=${length?.flowMm} mm -> ${measuredLength?.describe()}"
+        )
         val tooShortForTexture = !bald && length?.length == HairLength.SHORT &&
             readings.map { it.hairToFace }.median() < MIN_HAIR_TO_FACE_FOR_TEXTURE
         val foreheadWidth = readings.mapNotNull { it.foreheadToCheek }.takeIf { it.isNotEmpty() }?.median()
@@ -261,14 +278,26 @@ class LandmarkFaceAnalyzer(
             put("focalToLongSide", focalToLongSide)
             // How far away the face was, in effect: for checking results don't drift with distance.
             faceWidthPx?.let { put("faceWidthPx", it) }
+            // Raw hair-length readings, for calibrating HairLengthClassifier's constants against tape-measured hair.
+            length?.mmPerPx?.let { put("hairMmPerPx", it) }
+            length?.topMm?.let { put("hairTopMm", it) }
+            length?.fringeMm?.let { put("hairFringeMm", it) }
+            length?.fallMm?.let { put("hairFallMm", it) }
+            length?.flowMm?.let { put("hairFlowMm", it) }
+            measuredLength?.let { put("hairLengthMinIn", it.minIn); put("hairLengthMaxIn", it.maxIn) }
         }
 
         val tips = buildList {
             if (!bald && readings.isNotEmpty() && hairlineRatio == null) {
                 add("Your hair covers your hairline, so I measured your face without the top of your forehead; pushing it back helps.")
             }
-            if (length?.reachesFrameBottom == true && length.length != HairLength.LONG) {
-                add("Your hair runs past the bottom of the picture, so I can only tell it's at least medium length.")
+            when {
+                measuredLength?.atLeast == true ->
+                    add("Your hair runs past the bottom of the picture, so I can only tell it's at least ${measuredLength.describe().removePrefix("at least ")}.")
+                length?.reachesFrameBottom == true && length.length != HairLength.LONG ->
+                    add("Your hair runs past the bottom of the picture, so I can only tell it's at least medium length.")
+                measuredLength?.section == "on top" ->
+                    add("Hair worn flat or slicked back can measure shorter than it is, so fix the length if yours is longer.")
             }
             if (tooShortForTexture) add("Your hair is too short for me to read its texture.")
             skin?.lighting?.hint?.let { add("$it, then try again for a more reliable color read.") }
@@ -297,7 +326,8 @@ class LandmarkFaceAnalyzer(
             skinUndertone = skin?.undertone,
             skinToneConfidence = skin?.toneConfidence ?: 0f,
             skinUndertoneConfidence = skin?.undertoneConfidence ?: 0f,
-            measurements = measurements
+            measurements = measurements,
+            measuredHairLength = measuredLength
         )
     }
 

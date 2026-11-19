@@ -228,8 +228,7 @@ class FaceLandmarkStore {
             faceDetected && lighting.hint != null -> "${lighting.hint} — tap Scan when ready"
             faceDetected && hairLength == HairLength.BALD ->
                 "Face found — bald / no hair detected — tap Scan"
-            faceDetected && hairLength != null ->
-                "Face and ${hairLength.displayName.lowercase()} hair found — tap Scan"
+            // No length word: Short/Medium/Long depend on the user's gender scale, settled after the scan.
             faceDetected && hair != null ->
                 "Face and hair found — tap Scan"
             faceDetected ->

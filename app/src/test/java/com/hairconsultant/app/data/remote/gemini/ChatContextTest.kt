@@ -5,6 +5,8 @@ import com.hairconsultant.app.domain.model.Gender
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
+import com.hairconsultant.app.domain.model.MeasuredHairLength
+import com.hairconsultant.app.domain.model.ScanResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -87,6 +89,32 @@ class ChatContextTest {
         assertFalse(asksToSeeHairstyles("show me how to style it in the morning"))
         assertFalse(asksToSeeHairstyles("which hairstyle is best for humid weather?"))
         assertFalse(asksToSeeHairstyles("I want to see how it looks with a perm"))
+    }
+
+    @Test
+    fun catalogLinesSayHowMuchHairEachStyleNeeds() {
+        assertTrue(listOf(undercut).describeForChatContext().contains("needs 3–6 in (8–15 cm) on top"))
+    }
+
+    @Test
+    fun measuredLengthSetsTheCapForTheConsultant() {
+        val scan = ScanResult(
+            FaceShape.OVAL, HairLength.MEDIUM, HairTexture.STRAIGHT,
+            faceShapeConfidence = 0.9f, hairLengthConfidence = 0.9f, hairTextureConfidence = 0.9f,
+            measuredHairLength = MeasuredHairLength(2f, 3f, 2.5f, "on top")
+        )
+        val line = scan.describeHairLengthForChatContext(Gender.MALE)!!
+        assertTrue(line, line.contains("about 2–3 in (5–8 cm) on top"))
+        assertTrue(line, line.contains("Medium by men's standard"))
+        assertTrue(line, line.contains("needs more than 3 in"))
+        assertFalse(line.contains("may be longer"))
+        assertEquals("medium hair (about 2–3 in (5–8 cm) on top)", scan.hairLengthPhrase())
+
+        val cutOff = scan.copy(measuredHairLength = MeasuredHairLength(15f, 17f, 16f, "overall", atLeast = true))
+        assertTrue(cutOff.describeHairLengthForChatContext(Gender.FEMALE)!!.contains("may be longer"))
+        assertEquals("I'm not sure about your hair length, so check it with \"Fix\".", cutOff.unsureSentence("Fix"))
+
+        assertNull(scan.copy(measuredHairLength = null).describeHairLengthForChatContext(Gender.MALE))
     }
 
     private fun haircut(name: String, length: HairLength, texture: HairTexture, faceShapes: List<FaceShape>) = Haircut(

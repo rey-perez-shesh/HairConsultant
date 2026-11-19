@@ -120,6 +120,21 @@ object HairKnowledgeBase {
             """.trimIndent()
         ),
         KnowledgeChunk(
+            title = "Hair length: what can be cut, growth and scales",
+            text = """
+                Hair length: a cut can only take length away, so a style is only possible if the
+                hair is already at least as long as that style's longest section; anything longer
+                has to be grown into. Scalp hair grows about half an inch (1.25 cm) a month, so
+                going from a pixie to a bob takes roughly 12-18 months. Lengths are quoted as the
+                stretched strand: waves hide about 10-25% of it and curls 25-50%, so curly hair
+                looks shorter than it measures. Short, medium and long mean different things by
+                gender: for men they go by length on top (short under 2 inches, medium 2-5, long
+                past 5); for women they go by where the hair falls (short up to the chin, medium
+                chin to shoulder, long past the shoulder; on straight hair chin length is about
+                8-10 inches and shoulder length 12-14).
+            """.trimIndent()
+        ),
+        KnowledgeChunk(
             title = "Lifestyle fit: maintenance load",
             text = """
                 Lifestyle fit - maintenance load: scales with length and how much daily styling a

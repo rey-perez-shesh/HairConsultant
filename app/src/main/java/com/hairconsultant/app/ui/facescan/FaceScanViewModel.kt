@@ -11,8 +11,13 @@ import com.hairconsultant.app.data.recommendation.HairstyleRecommender
 import com.hairconsultant.app.data.remote.gemini.ExtractedPreferences
 import com.hairconsultant.app.data.remote.gemini.GeminiChatRepository
 import com.hairconsultant.app.data.remote.gemini.asksToSeeHairstyles
+import com.hairconsultant.app.data.analysis.fixedLength
+import com.hairconsultant.app.data.analysis.lengthFixChoices
+import com.hairconsultant.app.data.analysis.withLengthLabelFor
 import com.hairconsultant.app.data.remote.gemini.describeColoringForChatContext
 import com.hairconsultant.app.data.remote.gemini.describeForChatContext
+import com.hairconsultant.app.data.remote.gemini.describeHairLengthForChatContext
+import com.hairconsultant.app.data.remote.gemini.hairLengthPhrase
 import com.hairconsultant.app.data.remote.gemini.haircutsNamedIn
 import com.hairconsultant.app.data.remote.gemini.skinScanSentence
 import com.hairconsultant.app.data.remote.gemini.unsureSentence
@@ -117,6 +122,7 @@ class FaceScanViewModel(
         viewModelScope.launch {
             try {
                 val result = faceAnalyzer.analyzeCameraFrame(previousShape = lastConfirmedFaceShape())
+                    .withLengthLabelFor(profileGender())
                 chatBot.setOpen(true)
                 _uiState.update { it.copy(stage = FaceScanStage.CONFIRM_RESULT, scanResult = result) }
                 chatBot.pushBotMessage(
@@ -213,14 +219,15 @@ class FaceScanViewModel(
     private suspend fun buildConsultationContext(catalog: List<Haircut>): String {
         val state = _uiState.value
         val scan = state.scanResult
+        val gender = profileGender()
         return buildString {
             scan?.let { append("Confirmed face shape: ${it.faceShape.displayName}. ") }
             (state.desiredLength ?: scan?.hairLength)?.let { append("Hair length: ${it.displayName}. ") }
             (state.desiredTexture ?: scan?.hairTexture)?.let { append("Hair texture: ${it.displayName}. ") }
             state.desiredTreatment?.takeIf { it != TreatmentPreference.NONE }
                 ?.let { append("Planned treatment: ${it.displayName}. ") }
+            scan?.describeHairLengthForChatContext(gender)?.let { append("\n").append(it) }
             scan?.describeColoringForChatContext()?.let { append("\n").append(it) }
-            val gender = profileGender()
             gender.describeForChatContext()?.let { append("\n").append(it) }
             if (scan != null) {
                 append(
@@ -273,7 +280,7 @@ class FaceScanViewModel(
         }
     }
 
-    private fun onFixReply(text: String) {
+    private suspend fun onFixReply(text: String) {
         when {
             text.equals(RESCAN_LABEL, ignoreCase = true) -> rescan()
             _uiState.value.fixTarget == null -> onFixCategorySelected(text)
@@ -281,7 +288,7 @@ class FaceScanViewModel(
         }
     }
 
-    private fun onFixCategorySelected(text: String) {
+    private suspend fun onFixCategorySelected(text: String) {
         when {
             text.equals(FIX_FACE_SHAPE_LABEL, ignoreCase = true) -> {
                 _uiState.update { it.copy(fixTarget = ScanFixTarget.FACE_SHAPE) }
@@ -289,7 +296,10 @@ class FaceScanViewModel(
             }
             text.equals(FIX_HAIR_LENGTH_LABEL, ignoreCase = true) -> {
                 _uiState.update { it.copy(fixTarget = ScanFixTarget.HAIR_LENGTH) }
-                chatBot.pushBotMessage("Pick your hair length:", quickReplies = HairLength.entries.map { it.displayName })
+                chatBot.pushBotMessage(
+                    "How long is your hair at its longest?",
+                    quickReplies = lengthFixChoices(profileGender())
+                )
             }
             text.equals(FIX_HAIR_TEXTURE_LABEL, ignoreCase = true) -> {
                 _uiState.update { it.copy(fixTarget = ScanFixTarget.HAIR_TEXTURE) }
@@ -303,7 +313,7 @@ class FaceScanViewModel(
     }
 
     /** A fixed scan leads into the consultation, per "fix the scanned features and be consulted first". */
-    private fun onFixValueSelected(text: String) {
+    private suspend fun onFixValueSelected(text: String) {
         when (_uiState.value.fixTarget) {
             ScanFixTarget.FACE_SHAPE -> {
                 val shape = FaceShape.entries.firstOrNull { it.displayName.equals(text, ignoreCase = true) } ?: run {
@@ -314,14 +324,16 @@ class FaceScanViewModel(
                 startConsulting()
             }
             ScanFixTarget.HAIR_LENGTH -> {
-                val length = HairLength.entries.firstOrNull { it.displayName.equals(text, ignoreCase = true) } ?: run {
-                    chatBot.pushBotMessage("Pick a length from the list.", quickReplies = HairLength.entries.map { it.displayName })
+                val gender = profileGender()
+                val fixed = fixedLength(text, gender, _uiState.value.scanResult?.hairTexture) ?: run {
+                    chatBot.pushBotMessage("Pick a length from the list.", quickReplies = lengthFixChoices(gender))
                     return
                 }
+                val (length, measured) = fixed
                 _uiState.update {
                     it.copy(
                         desiredLength = length,
-                        scanResult = it.scanResult?.copy(hairLength = length),
+                        scanResult = it.scanResult?.copy(hairLength = length, measuredHairLength = measured),
                         fixTarget = null
                     )
                 }
@@ -536,7 +548,7 @@ private fun hairScanPhrase(result: ScanResult): String {
     }
     val details = buildList {
         if (result.hairLengthConfidence >= 0.5f) {
-            add("${result.hairLength.displayName.lowercase()} hair")
+            add(result.hairLengthPhrase())
         }
         if (result.hairTextureConfidence >= 0.5f) {
             add("${result.hairTexture.displayName.lowercase()} texture")
