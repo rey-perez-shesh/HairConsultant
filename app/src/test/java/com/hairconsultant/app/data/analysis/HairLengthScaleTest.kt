@@ -5,6 +5,7 @@ import com.hairconsultant.app.domain.model.FaceShape
 import com.hairconsultant.app.domain.model.Gender
 import com.hairconsultant.app.domain.model.HairLength
 import com.hairconsultant.app.domain.model.HairTexture
+import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.MeasuredHairLength
 import com.hairconsultant.app.domain.model.ScanResult
 import org.junit.Assert.assertEquals
@@ -104,6 +105,38 @@ class HairLengthScaleTest {
         assertNull(fixedLength("Shoulder (12–14 in)", Gender.MALE, HairTexture.STRAIGHT))
         assertEquals(lengthFixChoices(Gender.MALE).first(), "Bald")
     }
+
+    @Test
+    fun theImagePromptSaysWhereEachCutEnds() {
+        val warrior = haircut("Modern Warrior Cut", HairTexture.STRAIGHT)
+        val warriorLength = HairLengthScale.cutInstructions(warrior)
+        assertTrue(warriorLength, warriorLength.contains("4–7 in on top"))
+        assertTrue(warriorLength, warriorLength.contains("ears show fully"))
+
+        val shag = HairLengthScale.cutInstructions(SampleData.allHaircuts.first { it.name == "Short Feathered Shag" })
+        assertTrue(shag, shag.contains("ends at the chin"))
+        val longLayers = HairLengthScale.cutInstructions(SampleData.allHaircuts.first { it.name == "Long Layers" })
+        assertTrue(longLayers, longLayers.contains("between the collarbone and the middle of the back"))
+        assertTrue(HairLengthScale.cutInstructions(haircut("Buzz Cut", HairTexture.STRAIGHT)).contains("all over"))
+    }
+
+    @Test
+    fun aPreviewThatKeptTheOldLengthIsCaught() {
+        val warrior = haircut("Modern Warrior Cut", HairTexture.STRAIGHT)
+        // Hair hanging below the ears on a faded-sides cut.
+        assertTrue(HairLengthScale.tooLongFor(warrior, MeasuredHairLength(8f, 11f, 9.5f, "overall"))!!.contains("below the ears"))
+        assertNull(HairLengthScale.tooLongFor(warrior, MeasuredHairLength(4f, 6f, 5f, "on top")))
+
+        val lob = SampleData.allHaircuts.first { it.name == "Sleek Lob" }
+        assertTrue(HairLengthScale.tooLongFor(lob, MeasuredHairLength(19f, 23f, 21f, "overall"))!!.contains("12–16 in"))
+        // Within the scan's own error of the cut's longest: not counted against it.
+        assertNull(HairLengthScale.tooLongFor(lob, MeasuredHairLength(16.5f, 19f, 17.5f, "overall")))
+    }
+
+    private fun haircut(name: String, texture: HairTexture) = Haircut(
+        id = name, name = name, imageUrl = "", length = HairLength.SHORT, texture = texture,
+        recommendedFaceShapes = listOf(FaceShape.OVAL)
+    )
 
     @Test
     fun scanLabelIsRedoneFromTheInches() {

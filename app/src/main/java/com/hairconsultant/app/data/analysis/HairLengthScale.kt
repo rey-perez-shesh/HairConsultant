@@ -7,6 +7,7 @@ import com.hairconsultant.app.domain.model.HairTexture
 import com.hairconsultant.app.domain.model.Haircut
 import com.hairconsultant.app.domain.model.MeasuredHairLength
 import com.hairconsultant.app.domain.model.ScanResult
+import com.hairconsultant.app.domain.model.inches
 
 /**
  * Inches and the Short / Medium / Long labels, which mean different lengths for men and women.
@@ -136,6 +137,73 @@ object HairLengthScale {
             Option("Mid-back (18 in+)", 18f, 24f, OVERALL, atLeast = true)
         )
     }
+
+    /**
+     * Where [haircut] ends on the head and body, for the image prompt: given a picture alone, image
+     * models keep the person's own length and only restyle the top, so the cut is spelled out in
+     * landmarks they can see (ears, chin, shoulders) from the researched [HaircutLengths].
+     */
+    fun cutInstructions(haircut: Haircut): String {
+        val need = HaircutLengths.forHaircut(haircut)
+        val note = need.note.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
+        return when {
+            hasShortSides(need) -> "Length: about ${span(need)} on top$note. The sides and back are short: the ears " +
+                "show fully, and no hair hangs below the ears or onto the neck."
+            need.section == TOP -> "Length: about ${span(need)} on top$note."
+            need.maxIn < ALL_OVER_SHORT_IN -> "Length: about ${span(need)} all over$note, so the ears show fully and no " +
+                "hair reaches the neck."
+            else -> {
+                val shrink = 1f - typicalShrinkage(haircut.texture)
+                val shortest = landmark(need.minIn * shrink)
+                val longest = landmark(need.maxIn * shrink)
+                val where = if (shortest == longest) "at $shortest" else "between $shortest and $longest"
+                "Length: the longest hair ends $where$note."
+            }
+        }
+    }
+
+    /**
+     * Why a preview's hair, [measured] on the generated picture, is too long for [haircut], or null
+     * when it fits or can't be told. Short-sided cuts must not hang below the ears at all; other
+     * cuts get [LENGTH_TOLERANCE_IN] past their longest before the measurement counts against them.
+     */
+    fun tooLongFor(haircut: Haircut, measured: MeasuredHairLength): String? {
+        val need = HaircutLengths.forHaircut(haircut)
+        return when {
+            hasShortSides(need) && measured.section == OVERALL -> "the hair still hangs below the ears"
+            need.section == OVERALL && need.maxIn >= ALL_OVER_SHORT_IN && measured.minIn > need.maxIn + LENGTH_TOLERANCE_IN ->
+                "the hair looks about ${inches(measured.visibleIn)} in long, and the cut is ${span(need)}"
+            else -> null
+        }
+    }
+
+    /** A cut measured on top whose sides and back are short: up to 5 in, or the notes say so (faded, tapered, clipper sides). */
+    private fun hasShortSides(need: HaircutLengths.Need): Boolean {
+        if (need.section != TOP) return false
+        val note = need.note.lowercase()
+        return need.maxIn <= SHORT_SIDES_MAX_TOP_IN || SHORT_SIDE_WORDS.any { it in note }
+    }
+
+    private fun span(need: HaircutLengths.Need): String =
+        if (inches(need.minIn) == "0") "up to ${inches(need.maxIn)} in" else "${inches(need.minIn)}–${inches(need.maxIn)} in"
+
+    /** Where straight hair this long lands (the standard length chart: chin 8–10 in, shoulder 12–14 in). */
+    private fun landmark(inches: Float): String = when {
+        inches < 7f -> "the ears"
+        inches < 10.5f -> "the chin"
+        inches < 12f -> "the neck"
+        inches < 14.5f -> "the shoulders"
+        inches < 16.5f -> "the collarbone"
+        inches < 18.5f -> "the armpits"
+        else -> "the middle of the back"
+    }
+
+    private const val SHORT_SIDES_MAX_TOP_IN = 5f
+    private val SHORT_SIDE_WORDS = listOf("fade", "taper", "#", "short sides", "nape and ears", "nape and sides")
+    /** Below this, a cut measured "overall" is short all over (a buzz cut, a twist-out crop). */
+    private const val ALL_OVER_SHORT_IN = 4f
+    /** How far past a cut's longest a preview may measure before it counts as too long: the scan's own error. */
+    private const val LENGTH_TOLERANCE_IN = 1f
 
     /** Least and most share of the stretched length curls hide (Red Seal cutting guide: wavy 10–25%, curly 25–50%). */
     private fun shrinkage(texture: HairTexture?): Pair<Float, Float> = when (texture) {

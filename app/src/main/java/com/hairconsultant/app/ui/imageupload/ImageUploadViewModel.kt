@@ -3,7 +3,9 @@ package com.hairconsultant.app.ui.imageupload
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.util.Log
 import com.hairconsultant.app.data.analysis.FaceAnalyzer
+import com.hairconsultant.app.data.analysis.HairLengthScale
 import com.hairconsultant.app.data.analysis.NoFaceDetectedException
 import com.hairconsultant.app.data.local.ScanPhotoStore
 import com.hairconsultant.app.data.remote.firebase.AuthRepository
@@ -560,7 +562,21 @@ class ImageUploadViewModel(
         viewModelScope.launch {
             val prompt = buildStylePrompt(haircut)
             val referenceUri = runCatching { Uri.parse(haircut.imageUrl) }.getOrNull()
-            val result = geminiImageRepository.generateHaircutPreview(sourceUri, referenceUri, prompt)
+            var result = geminiImageRepository.generateHaircutPreview(sourceUri, referenceUri, prompt)
+            // The model tends to restyle the top and keep the person's own length, so the result's
+            // length is measured against the cut: one retry that says so, then an honest note.
+            var tooLong = result.getOrNull()?.let { lengthMismatch(haircut, it) }
+            if (tooLong != null) {
+                Log.d(TAG, "\"${haircut.name}\" preview too long ($tooLong); retrying once")
+                val retry = geminiImageRepository.generateHaircutPreview(
+                    sourceUri, referenceUri, prompt + " The previous attempt kept the person's own hair length ($tooLong). " +
+                        "Cut the hair to the length given above, removing everything longer."
+                )
+                if (retry.isSuccess) {
+                    result = retry
+                    tooLong = retry.getOrNull()?.let { lengthMismatch(haircut, it) }
+                }
+            }
             generating.remove(key)
             // The user may have picked a new photo or moved to another style while this ran.
             if (_uiState.value.sourceImageUri != sourceUri) return@launch
@@ -571,7 +587,12 @@ class ImageUploadViewModel(
                     _uiState.update {
                         it.copy(isGenerating = false, generatedImageUri = generatedUri, lookId = preview.lookId)
                     }
-                    chatBot.pushBotMessage("Here's your new look!")
+                    chatBot.pushBotMessage(
+                        tooLong?.let {
+                            "Heads up: this preview didn't fully match a ${haircut.name}: $it, so it kept more of " +
+                                "your current length than the cut has. Tap Try again for another attempt."
+                        } ?: "Here's your new look!"
+                    )
                 }
                 uploadResultAndPersist(haircut, key, generatedUri)
             }.onFailure { error ->
@@ -598,6 +619,18 @@ class ImageUploadViewModel(
     }
 
     /**
+     * Why the hair in the generated [preview] is too long for [haircut], measured the way an
+     * uploaded photo is ([HairLengthScale.tooLongFor]); null when it fits or can't be measured.
+     */
+    private suspend fun lengthMismatch(haircut: Haircut, preview: Uri): String? {
+        val measured = runCatching { faceAnalyzer.analyzeImage(preview) }
+            .onFailure { if (it is CancellationException) throw it }
+            .getOrNull()?.measuredHairLength ?: return null
+        Log.d(TAG, "\"${haircut.name}\" preview measures ${measured.describe()}")
+        return HairLengthScale.tooLongFor(haircut, measured)
+    }
+
+    /**
      * Builds the Gemini image prompt for [haircut]: which of the two attached images is which
      * ([GeminiImageRepository.generateHaircutPreview] sends the catalog's reference picture
      * alongside the user's photo), the style's own details, and the chosen treatment.
@@ -609,16 +642,21 @@ class ImageUploadViewModel(
     private fun buildStylePrompt(haircut: Haircut): String {
         val state = _uiState.value
         return buildString {
-            // No length/texture label: the catalog's can contradict the picture (a neck-length
-            // "Short Feathered Shag"), and the model then follows the words over the image.
+            // No Short/Medium/Long label: the catalog's can contradict the picture (a neck-length
+            // "Short Feathered Shag"), and the model then follows the words over the image. The
+            // researched length is given in landmarks instead: with only a cutout to go on, which
+            // has no head to measure against, the model kept the person's own length.
             append("The first attached image is a cutout of the \"${haircut.name}\" hairstyle on a plain white ")
             append("background. The second attached image is a photo of the person to restyle. Edit the second ")
             append("image: replace the person's current hair completely with the hairstyle in the first image. ")
-            append("The first image is the authority for the cut: copy its length, layering, parting, fringe and ")
-            append("overall silhouette exactly as shown, even where that differs from the style's name. The result ")
-            append("must look clearly different from the person's current haircut. Use the person's own hair ")
-            append("color, and keep their face, skin tone, expression, clothing, background and the photo's ")
-            append("framing unchanged.")
+            append("Copy the first image's layering, parting, fringe, texture and overall silhouette exactly as ")
+            append("shown, even where that differs from the style's name. ")
+            append(HairLengthScale.cutInstructions(haircut))
+            append(" Wherever this cut is shorter than the person's current hair, cut the extra hair away ")
+            append("completely and show the ears, neck, collar and background that were behind it; don't keep any ")
+            append("of the current length. The result must look clearly different from the person's current ")
+            append("haircut. Use the person's own hair color, and keep their face, skin tone, expression, clothing ")
+            append("and the photo's framing unchanged; only the hair, and whatever it uncovers, may change.")
             if (haircut.description.isNotBlank()) {
                 append(" Style detail: ${haircut.description}")
             }
@@ -738,6 +776,7 @@ private const val RESCAN_LABEL = "Rescan"
 private const val CONFIRM_LABEL = "Show My Hairstyles"
 private const val CONSULT_LABEL = "Consult with me first"
 private const val FIX_SCAN_LABEL = "Fix scan results"
+private const val TAG = "ImageUpload"
 /** How many scan-closest styles are pointed out to the consultant as a starting point. */
 private const val CLOSEST_MATCHES_HINT = 8
 /** Cap on how much of one consultation gets compiled for Show My Hairstyles. */
