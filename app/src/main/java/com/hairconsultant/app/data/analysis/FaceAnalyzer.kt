@@ -15,6 +15,7 @@ import com.hairconsultant.app.domain.model.SkinUndertone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.math.hypot
 import kotlin.math.min
 
 class NoFaceDetectedException(message: String = "No face detected") : Exception(message)
@@ -135,7 +136,10 @@ class LandmarkFaceAnalyzer(
                 if (readings.isEmpty() && bitmap != null) {
                     readings += read(frame.points, frame.imageWidth, frame.imageHeight, bitmap, frame.hairMask)
                 }
-                decide(measured.metrics, measured.agreement, readings, bitmap, angles, store.focalToLongSide, previousShape)
+                decide(
+                    measured.metrics, measured.agreement, readings, bitmap, angles, store.focalToLongSide,
+                    faceWidthPx(frame.points, frame.imageWidth, frame.imageHeight), previousShape
+                )
             }
         } finally {
             lastFrame?.bitmap?.recycle()
@@ -160,7 +164,10 @@ class LandmarkFaceAnalyzer(
                 ?: throw NoFaceDetectedException("I found a face but couldn't measure its shape. Move a bit closer and try again.")
             return withContext(Dispatchers.Default) {
                 val reading = read(detection.points, bitmap.width, bitmap.height, bitmap, liveHair = null)
-                decide(metrics, agreement = null, listOf(reading), bitmap, detection.angles, focal, previousShape = null)
+                decide(
+                    metrics, agreement = null, listOf(reading), bitmap, detection.angles, focal,
+                    faceWidthPx(detection.points, bitmap.width, bitmap.height), previousShape = null
+                )
             }
         } finally {
             bitmap.recycle()
@@ -215,6 +222,8 @@ class LandmarkFaceAnalyzer(
         verifierBitmap: Bitmap?,
         angles: HeadAngles?,
         focalToLongSide: Float,
+        /** Cheekbone-to-cheekbone width in image pixels ([faceWidthPx]): how much detail the scan had. */
+        faceWidthPx: Float?,
         previousShape: FaceShape?
     ): ScanResult {
         val hairlineRatio = readings.mapNotNull { it.fullToMeshLength }.takeIf { it.isNotEmpty() }?.median()
@@ -250,6 +259,8 @@ class LandmarkFaceAnalyzer(
             skin?.let { put("skinIta", it.ita); put("skinHue", it.hue) }
             angles?.let { put("pitchDeg", it.pitchDeg); put("yawDeg", it.yawDeg) }
             put("focalToLongSide", focalToLongSide)
+            // How far away the face was, in effect: for checking results don't drift with distance.
+            faceWidthPx?.let { put("faceWidthPx", it) }
         }
 
         val tips = buildList {
@@ -333,6 +344,14 @@ class LandmarkFaceAnalyzer(
             "Relax your face with your mouth closed, then tap Scan again."
         else -> FaceAlignment.adjustmentHint(store.latestAngles())?.let { "$it Then tap Scan again." }
             ?: "Hold still and face the camera for a moment, then tap Scan again."
+    }
+
+    /** Cheekbone-to-cheekbone width in image pixels, or null when the mesh is incomplete. */
+    private fun faceWidthPx(points: List<LandmarkPoint>, width: Int, height: Int): Float? {
+        if (points.size <= FaceShapeClassifier.RIGHT_CHEEK) return null
+        val left = points[FaceShapeClassifier.LEFT_CHEEK]
+        val right = points[FaceShapeClassifier.RIGHT_CHEEK]
+        return hypot((right.x - left.x) * width, (right.y - left.y) * height)
     }
 
     /** Normalized face area (cheek width by mesh height), the scale hair coverage is compared against. */

@@ -81,8 +81,11 @@ object FaceGuide {
             "Please upload one with your whole face near the middle, taken from closer up."
     }
 
-    /** A face narrower than this share of the view is too far away to place landmarks precisely. */
-    private const val MIN_FACE_WIDTH_FRACTION = 0.35f
+    /**
+     * A face narrower than this share of the view is too far away to place landmarks precisely:
+     * about 50 cm on the test phone (an average face, a 20:9 screen showing the middle of a 4:3 frame).
+     */
+    private const val MIN_FACE_WIDTH_FRACTION = 0.315f
 
     /** About the face width in pixels that [MIN_FACE_WIDTH_FRACTION] works out to on a live 480px-wide frame. */
     private const val MIN_PHOTO_FACE_WIDTH_PX = 120f
